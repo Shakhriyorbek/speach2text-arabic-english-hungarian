@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment (recreated by install.bat)
+venv/
+
+# Built/downloaded models (recreated by install.bat — large, not for version control)
+models/en-hu-ct2/

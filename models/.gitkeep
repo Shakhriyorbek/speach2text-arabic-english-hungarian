@@ -1,0 +1,2 @@
+# The installer writes the converted en-hu CTranslate2 model into this folder
+# (models/en-hu-ct2/). It is intentionally not committed — run install.bat.

@@ -1,0 +1,7 @@
+faster-whisper>=1.0.0
+ctranslate2>=4.0
+sentencepiece
+sounddevice
+webrtcvad-wheels
+numpy
+huggingface_hub
