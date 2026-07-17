@@ -101,3 +101,43 @@ It prints the recognized English (`EN:`) and the Hungarian (`HU:`) plus timings.
 - Machine translation makes mistakes. It is meant to help Hungarian speakers
   follow along, not to replace a human translator for anything that must be
   exact.
+
+---
+
+## Contributing
+
+Contributions are very welcome — this is a volunteer, zero-budget tool for a
+mosque, so improvements that keep it **simple, free, and fully offline** are
+especially valued.
+
+**How it fits together** (`subtitles/`):
+
+| File | Role |
+|------|------|
+| `audio.py` | microphone capture + voice-activity chunking |
+| `asr.py` | faster-whisper: speech → English (`task="translate"`) |
+| `mt.py` | CTranslate2: English → Hungarian |
+| `ui.py` | fullscreen Tkinter subtitle window |
+| `app.py` | wires the threads/queues together |
+| `config.py` | every tunable, in one place — start here |
+
+**Dev setup:** run `install.bat` once (see [setup](#one-time-setup-needs-internet-do-this-once-at-home)), then hack away.
+
+**Test your change without a stage/mic:** run the offline harness on any WAV —
+`venv\Scripts\python -m subtitles.test_pipeline clip.wav` (add `--mode part2`
+for auto-detect). For a live check, just `run.bat` and speak.
+
+**Good first contributions:**
+- Verify and tune **Arabic (Part 1)** quality on real khutbah audio across model sizes.
+- Make microphone selection friendlier (a picker instead of editing `config.py`).
+- Add other source or target languages (the pipeline is language-agnostic — `mt.py` is the only Hungarian-specific piece).
+- Improve robustness to room echo / PA feedback in the VAD.
+
+**Pull requests:**
+- Keep the volunteer-facing flow to "double-click `run.bat`, press F1/F2" — don't add steps a non-technical operator must perform.
+- Put new options in `config.py` with a short comment, rather than hard-coding.
+- Don't commit `venv/`, downloaded models, or `__pycache__` (already in `.gitignore`).
+- Describe what you tested (which WAV / live speech, which `MODEL_SIZE`).
+
+Not sure where to start? Open an issue describing the laptop, mic, and what you'd
+like to improve.
