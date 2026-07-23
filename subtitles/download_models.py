@@ -2,13 +2,13 @@
 One-time model setup — run by install.bat while internet is available.
 
 Does three things:
-  1. Warms the faster-whisper model cache (downloads config.MODEL_SIZE).
+  1. Warms the faster-whisper model cache (downloads the Part 1 + Part 2 sizes).
   2. Converts Helsinki-NLP/opus-mt-en-hu to a quantized CTranslate2 model in
      config.MT_MODEL_DIR, copying its SentencePiece tokenizers alongside.
   3. Runs a tiny self-test so a failed setup is obvious immediately.
 
 After this runs successfully the app is fully offline: nothing here is needed
-again unless you change MODEL_SIZE or delete the models.
+again unless you change a MODEL_SIZE_PART* or delete the models.
 """
 
 import os
@@ -24,16 +24,15 @@ MT_MODEL_NAME = "Helsinki-NLP/opus-mt-en-hu"
 
 
 def warm_whisper_cache():
-    print(f"[1/3] Downloading Whisper model '{config.MODEL_SIZE}' (this is the big one)...")
     from faster_whisper import WhisperModel
 
-    # Constructing the model downloads + caches it. We don't need the handle.
-    WhisperModel(
-        config.MODEL_SIZE,
-        device="cpu",
-        compute_type=config.WHISPER_COMPUTE_TYPE,
-    )
-    print("      Whisper model ready.")
+    # Download every distinct model size the two parts use (Part 1 + Part 2).
+    sizes = {config.MODEL_SIZE_PART1, config.MODEL_SIZE_PART2}
+    print(f"[1/3] Downloading Whisper model(s) {sorted(sizes)} (this is the big one)...")
+    for size in sizes:
+        # Constructing the model downloads + caches it. We don't need the handle.
+        WhisperModel(size, device="cpu", compute_type=config.WHISPER_COMPUTE_TYPE)
+    print("      Whisper model(s) ready.")
 
 
 def convert_en_hu():

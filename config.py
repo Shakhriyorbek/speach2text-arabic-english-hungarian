@@ -2,22 +2,43 @@
 Central configuration for the live khutbah subtitle system.
 
 Everything a volunteer might need to tune lives HERE, in one file, so that
-no one has to touch the code. The single most important knob is MODEL_SIZE:
-if the subtitles fall further and further behind the speaker, lower it.
+no one has to touch the code. The most important knobs are the two model
+sizes below: they trade accuracy against delay.
 """
 
 # ---------------------------------------------------------------------------
 # Speech recognition (faster-whisper)
 # ---------------------------------------------------------------------------
 
-# THE tuning knob. If the laptop lags, step DOWN this ladder:
-#   "small"  -> best quality, needs ~1 GB RAM, slowest (~1x realtime here)
-#   "base"   -> ~3x faster than small, good compromise      (current default)
-#   "tiny"   -> ~6x faster; snappiest but weakest Arabic accuracy
-# Measured on the dev laptop: small=1.08x, base=3.17x, tiny=6.02x realtime.
-# Higher = lower delay. Drop to "tiny" if base still lags on the mosque laptop;
-# go back to "small" only if Arabic (Part 1) accuracy is not good enough.
-MODEL_SIZE = "base"
+# Whisper model size, chosen SEPARATELY per khutbah part, because Arabic needs
+# a much bigger model than English for the same quality. Ladder, slowest→fastest:
+#   "medium" -> best Arabic, ~1.5 GB, SLOW on a weak CPU (may lag)
+#   "small"  -> decent Arabic, ~1 GB, ~1x realtime on the dev laptop
+#   "base"   -> weak Arabic but good English; ~3x realtime
+#   "tiny"   -> fastest (~6x); weakest accuracy
+# Measured (dev laptop, English): small=1.08x, base=3.17x, tiny=6.02x realtime.
+#
+# Part 1 is all Arabic -> favour accuracy. Part 2 is mostly English -> favour
+# speed. Start here; raise PART1 toward "medium" if Arabic is inaccurate, lower
+# it if it lags. If both are set to the same size, only one model is loaded.
+MODEL_SIZE_PART1 = "small"   # Arabic khutbah (F1) — accuracy priority
+MODEL_SIZE_PART2 = "base"    # English talk + quotes (F2) — speed priority
+
+# CPU threads faster-whisper may use. 0 = use every core (os.cpu_count()).
+CPU_THREADS = 0
+
+# Quantization for the Whisper model. "int8" is the light, fast default and
+# is what the installer downloads/uses. Leave as-is unless you know better.
+WHISPER_COMPUTE_TYPE = "int8"
+
+# Anti-hallucination decoding guards. These matter most for Arabic: when the
+# model is out of its depth it degenerates into "word word word..." loops that
+# are both wrong AND slow. Raising REPETITION_PENALTY or lowering
+# COMPRESSION_RATIO_MAX makes the filter stricter (drops more suspected garbage).
+REPETITION_PENALTY = 1.15    # >1 discourages repeating tokens while decoding
+NO_REPEAT_NGRAM = 3          # forbid repeating any 3-gram (kills tight loops)
+COMPRESSION_RATIO_MAX = 2.4  # drop a segment more repetitive than this
+LOGPROB_MIN = -1.0           # drop a segment the model is very unsure about
 
 # CPU threads faster-whisper may use. 0 = use every core (os.cpu_count()).
 CPU_THREADS = 0

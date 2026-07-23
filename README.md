@@ -54,16 +54,24 @@ paused, so the operator can always confirm the state.
 
 ## Tuning for a weak laptop
 
-Everything adjustable lives in **`config.py`**. The one that matters most:
+Everything adjustable lives in **`config.py`**. The knobs that matter most are
+the two model sizes — chosen separately per khutbah part, because Arabic needs
+a bigger model than English for the same quality:
 
 ```python
-MODEL_SIZE = "small"   # -> "base" -> "tiny"
+MODEL_SIZE_PART1 = "small"   # Arabic khutbah (F1) — accuracy priority
+MODEL_SIZE_PART2 = "base"    # English talk + quotes (F2) — speed priority
 ```
 
-If the subtitles drift **further and further** behind the speaker (not just a
-few seconds — that is normal — but growing without end), open `config.py`, change
-`"small"` to `"base"`, save, and restart with `run.bat`. `"base"` is much faster;
-`"tiny"` is the last resort (fast but weaker Arabic).
+Ladder, slowest→fastest: `medium` → `small` → `base` → `tiny`.
+
+- If the subtitles drift **further and further** behind the speaker (growing
+  without end, not just a few seconds — that is normal), lower the size for that
+  part (e.g. `small` → `base`), save, restart with `run.bat`.
+- If **Arabic (Part 1) is inaccurate**, raise `MODEL_SIZE_PART1` toward `small`
+  or `medium` — but note `medium` is very slow on a weak CPU and will likely lag.
+  On a weak laptop, `small` is realistically the accuracy ceiling for live use;
+  for better Arabic you need more compute (see the project notes / issues).
 
 **Choosing the microphone:** if the default mic is wrong, open a terminal in this
 folder and run `venv\Scripts\python -m sounddevice` to list devices, then set the
