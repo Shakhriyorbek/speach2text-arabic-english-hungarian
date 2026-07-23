@@ -88,7 +88,7 @@ MT_BEAM_SIZE = 2                    # 1 = fastest, 2 = slightly better quality.
 
 SHOW_ENGLISH = False         # True also shows the intermediate English line
                              # (useful for debugging; off for the congregation).
-DEBUG_AUDIO = True           # True prints "[audio] captured Ns" to the console
+DEBUG_AUDIO = False          # True prints "[audio] captured Ns" to the console
                              # each time speech is detected — a mic/VAD check.
                              # Set to False for real use.
 
