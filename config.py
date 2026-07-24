@@ -7,7 +7,28 @@ sizes below: they trade accuracy against delay.
 """
 
 # ---------------------------------------------------------------------------
-# Speech recognition (faster-whisper)
+# Which engine to use
+# ---------------------------------------------------------------------------
+
+# "local" -> fully offline: Whisper -> English -> opus-mt -> Hungarian.
+#            Free, private, no internet. Arabic quality is capped by the CPU.
+# "azure" -> cloud: Azure translates speech straight to Hungarian (no English
+#            pivot). Much better Arabic and much lower delay, but needs
+#            reliable internet plus AZURE_SPEECH_KEY / AZURE_SPEECH_REGION
+#            environment variables. See the README "Cloud mode" section.
+BACKEND = "local"
+
+# --- cloud mode settings (ignored when BACKEND = "local") ---
+AZURE_TARGET_LANG = "hu"                    # translate into Hungarian
+AZURE_LANG_PART1 = "ar-SA"                  # Part 1 is entirely Arabic
+AZURE_LANGS_PART2 = ["en-US", "ar-SA"]      # Part 2: English talk + Arabic quotes
+AZURE_SHOW_INTERIM = True                   # show text while still being spoken
+                                            # (big perceived-speed win; set False
+                                            # if the updating text is distracting)
+
+
+# ---------------------------------------------------------------------------
+# Speech recognition (faster-whisper) — used when BACKEND = "local"
 # ---------------------------------------------------------------------------
 
 # Whisper model size, chosen SEPARATELY per khutbah part, because Arabic needs

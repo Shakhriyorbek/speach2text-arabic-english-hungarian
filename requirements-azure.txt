@@ -1,0 +1,4 @@
+# Extra dependency for the optional CLOUD mode (config.BACKEND = "azure").
+# Not needed for the fully offline default. Install with:
+#     venv\Scripts\pip install -r requirements-azure.txt
+azure-cognitiveservices-speech

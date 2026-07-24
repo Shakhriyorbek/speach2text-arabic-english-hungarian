@@ -71,6 +71,8 @@ class SubtitleWindow:
 
         # Backing store of the last N lines (each: (hu_text, en_text|None)).
         self._history = []
+        # In-progress line from cloud-mode interim results ("" = none).
+        self._partial = ""
 
         self._splash()
         self._bind_keys()
@@ -156,7 +158,13 @@ class SubtitleWindow:
 
     def _render(self):
         # Newest line last in history; show them top(old)->bottom(new).
-        rows = self._history[-config.MAX_LINES:]
+        # An in-progress (interim) line, if any, hangs below as the newest — it
+        # is replaced in place as the speaker continues, then promoted to
+        # history when the final result arrives.
+        rows = list(self._history)
+        if self._partial:
+            rows.append((self._partial, None))
+        rows = rows[-config.MAX_LINES:]
         # Pad so the block stays vertically centred.
         pad = config.MAX_LINES - len(rows)
 
@@ -178,9 +186,15 @@ class SubtitleWindow:
             idx += 1
 
     def _add_line(self, hu, en=None):
+        self._partial = ""          # a final result supersedes any interim text
         self._history.append((hu, en))
         if len(self._history) > config.MAX_LINES:
             self._history = self._history[-config.MAX_LINES:]
+        self._render()
+
+    def _set_partial(self, hu):
+        """Show/replace the in-progress line (cloud mode interim results)."""
+        self._partial = hu
         self._render()
 
     # -- queue polling (main thread) ----------------------------------------
@@ -195,6 +209,8 @@ class SubtitleWindow:
                 if kind == "line":
                     _, hu, en = item
                     self._add_line(hu, en)
+                elif kind == "partial":
+                    self._set_partial(item[1])
                 elif kind == "dropped":
                     # Briefly append an overload marker to the badge.
                     cur = self._badge.cget("text")

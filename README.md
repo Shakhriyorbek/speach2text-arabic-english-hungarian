@@ -83,6 +83,62 @@ MIC_DEVICE = 3   # the index shown for your microphone
 
 ---
 
+## Cloud mode (optional) — much better Arabic
+
+The offline mode is free and private, but a weak laptop's CPU caps how good the
+**Arabic** can get: the models that handle Arabic well (`medium`, `large`) are
+far too slow to run live on it. If the mosque has **reliable wifi**, cloud mode
+solves this.
+
+**What changes:** Azure translates the speech **straight into Hungarian** — no
+English middle step at all. Better Arabic, lower delay, and text appears *while*
+the speaker is still talking (interim results). Your laptop barely works at all.
+
+**Trade-offs:** needs internet during the khutbah, and the audio is sent to
+Microsoft. (A khutbah is public speech, but it's your call to make.)
+
+### Setting it up
+
+1. **Create a free Azure Speech resource.** In the Azure portal create a
+   *Speech service* resource and pick the **free (F0)** tier. Note its **key**
+   and **region** (e.g. `westeurope`). The free tier includes several audio
+   hours per month — typically enough for a weekly khutbah. *Check current
+   pricing/limits yourself; they change.*
+
+2. **Install the extra dependency:**
+   ```
+   venv\Scripts\pip install -r requirements-azure.txt
+   ```
+
+3. **Put your key in environment variables.** Never type it into a project file
+   and never share it. In PowerShell, to set it permanently for your user:
+   ```powershell
+   setx AZURE_SPEECH_KEY "your-key-here"
+   setx AZURE_SPEECH_REGION "westeurope"
+   ```
+   Then **close and reopen** the terminal (or log out/in) so the values apply.
+
+4. **Switch the backend** in `config.py`:
+   ```python
+   BACKEND = "azure"     # was "local"
+   ```
+
+5. Run `run.bat` as usual. F1/F2 work exactly the same.
+
+To go back to fully offline, set `BACKEND = "local"` again. Both modes stay
+installed, so you can fall back instantly if the internet fails on the day —
+worth testing that fallback once before relying on cloud mode.
+
+### Cloud settings in `config.py`
+
+```python
+AZURE_LANG_PART1  = "ar-SA"                # Part 1 is entirely Arabic
+AZURE_LANGS_PART2 = ["en-US", "ar-SA"]     # Part 2: English talk + Arabic quotes
+AZURE_SHOW_INTERIM = True                  # live-updating text while speaking
+```
+
+---
+
 ## Test it without a microphone
 
 Record a short clip (Windows **Voice Recorder**, saved/converted to `.wav`) and:

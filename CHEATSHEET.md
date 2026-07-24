@@ -43,6 +43,7 @@ The **top-right corner** shows the current mode: `1: ARAB` or `2: AUTO`.
 | **Text too small on the projector** | Press **`+`** a few times. |
 | **Nothing shows on the projector** | `⊞ Windows` + `P` → **Duplicate**. Move the window with the mouse if needed. |
 | **It froze / acting weird** | Press **Esc**, then double-click `run.bat` again. |
+| **Cloud mode: "⚠ Felhő hiba" on screen** | Internet is down or the Azure key/quota has a problem. Check the console window. **Quick fallback:** set `BACKEND = "local"` in `config.py`, restart — works offline. |
 
 ---
 

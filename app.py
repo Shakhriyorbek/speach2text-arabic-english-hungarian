@@ -1,16 +1,18 @@
 """
 Entry point — wires the whole pipeline together.
 
-    Mic ── audio_q ──▶ ASR+MT worker thread ── ui_q ──▶ Tkinter window (main thread)
+Two interchangeable backends, selected by ``config.BACKEND``:
 
-Thread map:
-  * audio worker (inside UtteranceChunker) : mic -> VAD -> utterances -> audio_q
-  * asr_mt worker (here)                   : audio_q -> English -> Hungarian -> ui_q
-  * main thread                            : the Tkinter subtitle window
+  "local"  (offline, free, private — capped by CPU on Arabic)
+    Mic ── audio_q ──▶ ASR+MT worker ── ui_q ──▶ Tkinter window (main thread)
+    Whisper (task=translate) -> English -> opus-mt -> Hungarian.
 
-Back-pressure lives on audio_q (bounded, drop-oldest) so a slow CPU degrades to
-"occasional dropped sentence" instead of ever-growing lag. ui_q is unbounded
-because the UI always drains it quickly.
+  "azure"  (cloud, needs internet + key — far better Arabic, lower delay)
+    Mic ──▶ Azure Speech Translation ── ui_q ──▶ Tkinter window
+    Speech -> Hungarian directly, no English pivot.
+
+Either way the UI is identical and runs on the main thread; backends only ever
+push messages onto ``ui_q``.
 """
 
 import queue
@@ -22,13 +24,15 @@ from subtitles.console import enable_utf8_console
 
 enable_utf8_console()
 
-from subtitles.audio import UtteranceChunker
-from subtitles.asr import Transcriber
-from subtitles.mt import Translator
 from subtitles.ui import SubtitleWindow
 
 
-def main():
+def run_local():
+    """Fully offline pipeline: Whisper -> English -> opus-mt -> Hungarian."""
+    from subtitles.audio import UtteranceChunker
+    from subtitles.asr import Transcriber
+    from subtitles.mt import Translator
+
     print("Loading models — this can take 10-30s on a weak laptop...")
     t0 = time.time()
     transcriber = Transcriber()
@@ -40,8 +44,6 @@ def main():
 
     chunker = UtteranceChunker(audio_q)
     stop_event = threading.Event()
-
-    # -- ASR + MT worker ----------------------------------------------------
 
     def asr_mt_loop():
         while not stop_event.is_set():
@@ -78,8 +80,6 @@ def main():
 
     worker = threading.Thread(target=asr_mt_loop, name="asr-mt", daemon=True)
 
-    # -- UI callbacks -------------------------------------------------------
-
     def on_set_mode(mode):
         transcriber.mode = mode
         print(f"[mode] -> {mode}")
@@ -104,11 +104,9 @@ def main():
         on_quit=on_quit,
     )
 
-    # -- go -----------------------------------------------------------------
-
     chunker.start()
     worker.start()
-    print("Ready. In the subtitle window: F1 = Part 1 (Arabic), F2 = Part 2 (auto).")
+    print("Ready (offline mode). F1 = Part 1 (Arabic), F2 = Part 2 (auto).")
     print("F11 fullscreen · +/- font · P pause · Esc quit.")
 
     try:
@@ -116,6 +114,52 @@ def main():
     finally:
         stop_event.set()
         chunker.stop()
+
+
+def run_azure():
+    """Cloud pipeline: Azure translates speech straight into Hungarian."""
+    from subtitles.azure_backend import AzureBackend
+
+    ui_q: "queue.Queue" = queue.Queue()
+
+    print("Connecting to Azure Speech...")
+    backend = AzureBackend(ui_q)
+
+    def on_set_mode(mode):
+        print(f"[mode] -> {mode} (reconnecting stream...)")
+        backend.set_mode(mode)
+
+    def on_quit():
+        print("Shutting down...")
+        backend.stop()
+
+    window = SubtitleWindow(
+        ui_queue=ui_q,
+        on_set_mode=on_set_mode,
+        on_toggle_pause=backend.toggle_pause,
+        on_quit=on_quit,
+    )
+
+    backend.start()
+    print("Ready (cloud mode). F1 = Part 1 (Arabic), F2 = Part 2 (auto).")
+    print("F11 fullscreen · +/- font · P pause · Esc quit.")
+
+    try:
+        window.run()
+    finally:
+        backend.stop()
+
+
+def main():
+    backend = getattr(config, "BACKEND", "local").lower()
+    if backend == "azure":
+        run_azure()
+    elif backend == "local":
+        run_local()
+    else:
+        raise SystemExit(
+            f"config.BACKEND is {backend!r}; expected \"local\" or \"azure\"."
+        )
 
 
 if __name__ == "__main__":
