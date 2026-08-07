@@ -1,0 +1,205 @@
+"""
+GPU transcription server — runs ON the Azure T4 VM, not on the mosque laptop.
+
+Why this exists: a weak laptop CPU caps Whisper at "small", which is not good
+enough for Arabic (measured: it dropped most of a real khutbah). The same audio
+through "large-v3" on a Tesla T4 runs ~30x realtime and picks up names, and
+keeps negations that "small" and "medium" both mangled.
+
+The laptop records audio exactly as before; it just sends each utterance here
+instead of transcribing it locally, and falls back to the local model
+automatically if this server is unreachable.
+
+Deliberately stdlib-only (http.server) apart from faster-whisper: the VM disk is
+tight and a single-client subtitle feed does not need a web framework.
+
+Protocol
+--------
+POST /transcribe
+    Authorization: Bearer <token>     (must match WHISPER_SERVER_TOKEN)
+    X-Mode: part1 | part2             (part1 forces Arabic, part2 auto-detects)
+    body: raw little-endian int16 PCM, 16 kHz, mono
+    -> 200 {"text": "...", "ms": 123, "dropped": 0}
+
+GET /health
+    -> 200 {"ok": true, "model": "large-v3", "device": "cuda"}
+
+Run it:
+    export WHISPER_SERVER_TOKEN="<a long random string>"
+    ~/wbench/bin/python whisper_server.py
+"""
+
+import json
+import os
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import numpy as np
+
+from faster_whisper import WhisperModel
+
+# --- settings (env-overridable so nothing secret lives in this file) --------
+
+HOST = os.environ.get("WHISPER_SERVER_HOST", "0.0.0.0")
+PORT = int(os.environ.get("WHISPER_SERVER_PORT", "8756"))
+MODEL_SIZE = os.environ.get("WHISPER_MODEL", "large-v3")
+DEVICE = os.environ.get("WHISPER_DEVICE", "cuda")
+COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
+
+# Shared secret. The server refuses to start without one — an open transcription
+# endpoint on a public IP is exactly the mistake that left Ollama world-readable.
+TOKEN = os.environ.get("WHISPER_SERVER_TOKEN", "").strip()
+
+MAX_BODY_BYTES = 16 * 1024 * 1024   # ~8 minutes of 16 kHz int16; refuse beyond.
+
+# Same anti-hallucination guards as subtitles/asr.py, so the remote path filters
+# exactly like the local one and the two stay comparable.
+REPETITION_PENALTY = 1.15
+NO_REPEAT_NGRAM = 3
+COMPRESSION_RATIO_MAX = 2.4
+LOGPROB_MIN = -1.0
+NO_SPEECH_MAX = 0.6
+
+_model = None
+
+
+def get_model():
+    global _model
+    if _model is None:
+        print(f"loading {MODEL_SIZE} on {DEVICE} ({COMPUTE_TYPE})...", flush=True)
+        t0 = time.time()
+        _model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+        print(f"model ready in {time.time() - t0:.1f}s", flush=True)
+    return _model
+
+
+def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate"):
+    """int16 PCM -> (text, n_dropped_segments, detected_language).
+
+    task="translate" gives ENGLISH (Whisper can emit no other target language).
+    task="transcribe" gives the SPOKEN language — needed by the direct
+    Arabic->Hungarian path, which must not be handed English by mistake.
+    """
+    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+
+    segments, info = get_model().transcribe(
+        audio,
+        task=task,
+        language="ar" if mode == "part1" else None,
+        beam_size=1,
+        temperature=0.0,
+        condition_on_previous_text=False,      # stops repetition loops
+        repetition_penalty=REPETITION_PENALTY,
+        no_repeat_ngram_size=NO_REPEAT_NGRAM,
+        without_timestamps=True,
+        vad_filter=False,                      # the laptop's VAD already ran
+    )
+
+    kept, dropped = [], 0
+    for s in segments:
+        if (s.no_speech_prob or 0) > NO_SPEECH_MAX:
+            dropped += 1
+        elif (s.compression_ratio or 0) > COMPRESSION_RATIO_MAX:
+            dropped += 1
+        elif (s.avg_logprob or 0) < LOGPROB_MIN:
+            dropped += 1
+        else:
+            piece = s.text.strip()
+            if piece:
+                kept.append(piece)
+    lang = "ar" if mode == "part1" else (getattr(info, "language", None) or "ar")
+    return " ".join(kept).strip(), dropped, lang
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def _json(self, code, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _authorized(self):
+        supplied = self.headers.get("Authorization", "")
+        expected = f"Bearer {TOKEN}"
+        # Constant-ish comparison; token is short-lived and self-hosted, but
+        # there is no reason to leak length/prefix through early exit.
+        if len(supplied) != len(expected):
+            return False
+        return all(a == b for a, b in zip(supplied, expected))
+
+    def do_GET(self):
+        if self.path == "/health":
+            self._json(200, {"ok": True, "model": MODEL_SIZE, "device": DEVICE})
+        else:
+            self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path != "/transcribe":
+            self._json(404, {"error": "not found"})
+            return
+        if not self._authorized():
+            self._json(401, {"error": "bad or missing bearer token"})
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._json(400, {"error": "bad Content-Length"})
+            return
+        if length <= 0:
+            self._json(400, {"error": "empty body"})
+            return
+        if length > MAX_BODY_BYTES:
+            self._json(413, {"error": "audio too large"})
+            return
+
+        pcm = self.rfile.read(length)
+        mode = self.headers.get("X-Mode", "part1")
+        if mode not in ("part1", "part2"):
+            mode = "part1"
+        task = self.headers.get("X-Task", "translate")
+        if task not in ("translate", "transcribe"):
+            task = "translate"
+
+        t0 = time.time()
+        try:
+            text, dropped, lang = transcribe_pcm(pcm, mode, task)
+        except Exception as exc:                    # never let one chunk kill it
+            print(f"[error] {type(exc).__name__}: {exc}", flush=True)
+            self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
+            return
+
+        ms = int((time.time() - t0) * 1000)
+        secs = len(pcm) / 2 / 16000
+        print(f"  {secs:.1f}s audio -> {ms}ms ({secs / (ms / 1000 or 1):.1f}x) "
+              f"[{mode}/{task}/{lang}] {text[:80]}", flush=True)
+        self._json(200, {"text": text, "ms": ms, "dropped": dropped, "language": lang})
+
+    def log_message(self, fmt, *args):
+        pass    # we print our own, quieter, line per request
+
+
+def main():
+    if not TOKEN:
+        sys.exit(
+            "WHISPER_SERVER_TOKEN is not set.\n"
+            "Refusing to start an unauthenticated transcription endpoint on a\n"
+            "public IP. Generate one with:  openssl rand -hex 32"
+        )
+    get_model()      # load before accepting traffic, so the first khutbah
+                     # utterance is not charged the model load time
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"listening on {HOST}:{PORT}", flush=True)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print("\nshutting down")
+
+
+if __name__ == "__main__":
+    main()

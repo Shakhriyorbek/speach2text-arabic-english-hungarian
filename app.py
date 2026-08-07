@@ -31,13 +31,39 @@ def run_local():
     """Fully offline pipeline: Whisper -> English -> opus-mt -> Hungarian."""
     from subtitles.audio import UtteranceChunker
     from subtitles.asr import Transcriber
-    from subtitles.mt import Translator
+
+    direct = getattr(config, "TRANSLATION_PATH", "pivot").lower() == "direct"
 
     print("Loading models — this can take 10-30s on a weak laptop...")
     t0 = time.time()
     transcriber = Transcriber()
-    translator = Translator()
+    if direct:
+        # Arabic -> Hungarian with no English in between. See mt_direct.py.
+        from subtitles.mt_direct import DirectTranslator
+
+        translator = DirectTranslator()
+    else:
+        from subtitles.mt import Translator
+
+        translator = Translator()
     print(f"Models loaded in {time.time() - t0:.1f}s.")
+    print(f"Translation path: {'Arabic -> Hungarian (direct, NLLB)' if direct else 'via English (opus-mt)'}")
+
+    # Optionally hand transcription to a GPU box. The local model above stays
+    # loaded regardless and becomes the automatic fallback — loading it later,
+    # mid-sermon, would stall the audio at the worst possible moment.
+    if getattr(config, "ASR_LOCATION", "cpu").lower() == "remote":
+        from subtitles.asr_remote import RemoteTranscriber
+
+        remote = RemoteTranscriber(local_fallback=transcriber)
+        info = remote.health()
+        if info:
+            print(f"Remote ASR: {info.get('model')} on {info.get('device')} "
+                  f"at {config.REMOTE_ASR_URL}")
+        else:
+            print(f"Remote ASR at {config.REMOTE_ASR_URL} is NOT responding — "
+                  f"starting on the local model instead.")
+        transcriber = remote
 
     audio_q: "queue.Queue" = queue.Queue(maxsize=config.ASR_QUEUE_MAX)
     ui_q: "queue.Queue" = queue.Queue()
@@ -58,25 +84,33 @@ def run_local():
                 ui_q.put(("dropped",))
 
             try:
-                english = transcriber.transcribe(audio)
+                # Pivot path: this is English. Direct path: it is the spoken
+                # language (Arabic for Part 1).
+                source_text = transcriber.transcribe(audio)
             except Exception as exc:  # never let one bad chunk kill the loop
                 print(f"[ASR error] {exc}")
                 continue
-            if not english:
+            if not source_text:
                 continue
 
             try:
-                hungarian = translator.translate(english)
+                if direct:
+                    # Tell the translator which language it has been handed;
+                    # Part 2 auto-detects, so this can change per utterance.
+                    translator.src_lang = getattr(transcriber, "last_language", "ar")
+                hungarian = translator.translate(source_text)
             except Exception as exc:
                 print(f"[MT error] {exc}")
                 continue
             if not hungarian:
                 continue
 
-            ui_q.put(("line", hungarian, english if config.SHOW_ENGLISH else None))
+            ui_q.put(("line", hungarian, source_text if config.SHOW_ENGLISH else None))
             # Console transcript log (does NOT affect the projector window).
             # Useful as a diagnostic and as a record of what was said.
-            print(f"  EN: {english}\n  HU: {hungarian}", flush=True)
+            label = (getattr(transcriber, "last_language", "ar").upper()
+                     if direct else "EN")
+            print(f"  {label}: {source_text}\n  HU: {hungarian}", flush=True)
 
     worker = threading.Thread(target=asr_mt_loop, name="asr-mt", daemon=True)
 

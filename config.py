@@ -18,6 +18,32 @@ sizes below: they trade accuracy against delay.
 #            environment variables. See the README "Cloud mode" section.
 BACKEND = "local"
 
+# Within BACKEND = "local", WHERE the speech recognition runs:
+#   "cpu"    -> on this laptop (fully offline, capped at MODEL_SIZE_PART*).
+#   "remote" -> on a GPU box running server/whisper_server.py, which can afford
+#               "large-v3". Measured on a Tesla T4: ~30x realtime, and it kept
+#               meaning that local "small"/"medium" lost. Needs internet, plus
+#               WHISPER_SERVER_TOKEN in the environment. Falls back to the local
+#               model automatically if the server cannot be reached.
+# The Hungarian translation always stays on this laptop either way.
+ASR_LOCATION = "cpu"
+
+# --- remote ASR settings (ignored when ASR_LOCATION = "cpu") ---
+# Where the GPU box is reachable, no trailing slash. Two ways to point at it:
+#   via SSH tunnel (recommended — nothing exposed to the internet):
+#       ssh -i <key> -N -L 8756:127.0.0.1:8756 hpcadmin@<vm-ip>
+#       then use  http://127.0.0.1:8756  below
+#   direct: use  http://<vm-ip>:8756  and open 8756 in the Azure NSG to your
+#       IP only. Never leave it open to the whole internet.
+REMOTE_ASR_URL = "http://127.0.0.1:8756"
+REMOTE_ASR_TIMEOUT = 10.0                   # seconds; must be well under the
+                                            # time the congregation would notice
+                                            # a stall. On timeout we fall back.
+REMOTE_ASR_FAILURES_BEFORE_FALLBACK = 2     # consecutive failures before giving
+                                            # up on the server for a while
+REMOTE_ASR_RETRY_EVERY = 20                 # while fallen back, re-probe the
+                                            # server every Nth utterance
+
 # --- cloud mode settings (ignored when BACKEND = "local") ---
 AZURE_TARGET_LANG = "hu"                    # translate into Hungarian
 AZURE_LANG_PART1 = "ar-SA"                  # Part 1 is entirely Arabic
@@ -38,6 +64,11 @@ AZURE_SHOW_INTERIM = True                   # show text while still being spoken
 #   "base"   -> weak Arabic but good English; ~3x realtime
 #   "tiny"   -> fastest (~6x); weakest accuracy
 # Measured (dev laptop, English): small=1.08x, base=3.17x, tiny=6.02x realtime.
+# Measured (i7-1165G7, Arabic khutbah): medium=0.89x realtime — BELOW realtime,
+# so the queue backs up and starts dropping audio. In a live test it produced
+# roughly a THIRD of the subtitle coverage of "small" (1 line/33s vs 1 line/10s),
+# i.e. bigger is not better once you fall under 1x. On laptops of that class
+# "small" is the practical ceiling for Part 1; for real gains use cloud mode.
 #
 # Part 1 is all Arabic -> favour accuracy. Part 2 is mostly English -> favour
 # speed. Start here; raise PART1 toward "medium" if Arabic is inaccurate, lower
@@ -60,13 +91,6 @@ REPETITION_PENALTY = 1.15    # >1 discourages repeating tokens while decoding
 NO_REPEAT_NGRAM = 3          # forbid repeating any 3-gram (kills tight loops)
 COMPRESSION_RATIO_MAX = 2.4  # drop a segment more repetitive than this
 LOGPROB_MIN = -1.0           # drop a segment the model is very unsure about
-
-# CPU threads faster-whisper may use. 0 = use every core (os.cpu_count()).
-CPU_THREADS = 0
-
-# Quantization for the Whisper model. "int8" is the light, fast default and
-# is what the installer downloads/uses. Leave as-is unless you know better.
-WHISPER_COMPUTE_TYPE = "int8"
 
 
 # ---------------------------------------------------------------------------
@@ -123,16 +147,48 @@ NO_SPEECH_MAX = 0.6          # drop transcribed segments whose no_speech_prob
 MT_MODEL_DIR = "models/en-hu-ct2"   # produced by the installer.
 MT_BEAM_SIZE = 2                    # 1 = fastest, 2 = slightly better quality.
 
+# How the Arabic reaches Hungarian:
+#   "pivot"  -> Whisper task="translate" gives ENGLISH, then opus-mt en->hu.
+#               Fast (~0.1s/line) but every hop loses meaning. Measured failure:
+#               "Satan has despaired of being worshipped" became Hungarian
+#               "Satan MUST be worshipped" — an inversion, on a projector.
+#   "direct" -> Whisper task="transcribe" gives ARABIC, then NLLB ar->hu with no
+#               English in between, so that inversion cannot happen. Slower
+#               (~1.0s/line measured on the dev laptop) and a bigger model
+#               (~600 MB vs 77 MB). NLLB tends to drop qualifiers, so it is a
+#               trade rather than a clean win — but it does not invert meaning.
+# Whisper CANNOT translate to Hungarian itself; it only ever emits English in
+# translate mode. That is why "direct" changes the ASR task as well.
+#
+# DEFAULT IS "direct". Measured on a real khutbah recording, same audio and same
+# model: direct produced 6 subtitle lines where pivot produced 1, because plain
+# transcription is an easier job for Whisper than transcribe-and-translate, so
+# far more output survives the quality guards.
+#
+# NOTE: direct is NOT faster. It measured ~13% SLOWER overall (NLLB ~1.0s/line
+# vs opus-mt ~0.1s/line). Whisper is 75-90% of the time either way; the delay
+# you feel comes from MAX_UTTERANCE_S below, not from the translation stage.
+# Choose "direct" for accuracy, not for speed.
+TRANSLATION_PATH = "direct"
+
+# --- direct-path settings (ignored when TRANSLATION_PATH = "pivot") ---
+NLLB_MODEL_DIR = "models/nllb-600m-ct2"   # produced by the installer.
+NLLB_TARGET_LANG = "hun_Latn"             # NLLB code for Hungarian.
+NLLB_BEAM_SIZE = 2
+# Whisper language code -> NLLB language token. Part 2 auto-detects, so English
+# needs an entry too; anything unmapped falls back to Arabic.
+NLLB_LANG_MAP = {"ar": "arb_Arab", "en": "eng_Latn"}
+
 
 # ---------------------------------------------------------------------------
 # Display / subtitle window
 # ---------------------------------------------------------------------------
 
-SHOW_ENGLISH = False         # True also shows the intermediate English line
-                             # (useful for debugging; off for the congregation).
-DEBUG_AUDIO = False          # True prints "[audio] captured Ns" to the console
-                             # each time speech is detected — a mic/VAD check.
-                             # Set to False for real use.
+SHOW_ENGLISH = False         # True also shows the source line (Arabic on the
+                             # direct path) — debugging only, off for the
+                             # congregation.
+DEBUG_AUDIO = False          # True prints "[audio] captured Ns peak=" per
+                             # utterance — a mic/VAD check. False for real use.
 
 FONT_FAMILY = "Segoe UI"     # renders Hungarian ő / ű correctly on Windows.
 FONT_SIZE = 44               # starting font size; adjustable live with + / -.

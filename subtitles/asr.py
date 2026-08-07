@@ -73,18 +73,30 @@ class Transcriber:
         self.mode = "part1"
         self._last_text = ""
 
+        # Language of the text last returned, as a Whisper code ("ar"/"en").
+        # Only meaningful on the direct path, where the translator needs to know
+        # what it is being handed. Written and read by the ASR thread alone.
+        self.last_language = "ar"
+
     def _model_for_mode(self):
         size = config.MODEL_SIZE_PART1 if self.mode == "part1" else config.MODEL_SIZE_PART2
         return self._models[size]
 
     def transcribe(self, audio: np.ndarray) -> str:
-        """Return English text for ``audio`` (float32 mono @16 kHz), or ""."""
+        """Return text for ``audio`` (float32 mono @16 kHz), or "".
+
+        On the pivot path the text is ENGLISH (Whisper's translate task only
+        ever emits English). On the direct path it is the SPOKEN language —
+        Arabic for Part 1 — and ``self.last_language`` says which, so the
+        translator knows what it has been handed.
+        """
+        direct = getattr(config, "TRANSLATION_PATH", "pivot").lower() == "direct"
         lang = "ar" if self.mode == "part1" else None
         model = self._model_for_mode()
 
-        segments, _info = model.transcribe(
+        segments, info = model.transcribe(
             audio,
-            task="translate",
+            task="transcribe" if direct else "translate",
             language=lang,
             beam_size=1,
             temperature=0.0,
@@ -115,6 +127,10 @@ class Transcriber:
         text = " ".join(parts).strip()
         if not text:
             return ""
+
+        # Record what language this text is in. Part 1 pins Arabic; Part 2
+        # auto-detects, and info.language carries Whisper's verdict.
+        self.last_language = lang or getattr(info, "language", None) or "ar"
 
         # Hallucination guards.
         norm = _normalize(text)
