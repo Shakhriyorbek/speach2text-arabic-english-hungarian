@@ -17,6 +17,7 @@ the local model, and says so once on the console rather than failing silently.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import urllib.error
@@ -55,6 +56,11 @@ class RemoteTranscriber:
 
         self.mode = "part1"
         self._last_text = ""
+
+        prompt = (getattr(config, "WHISPER_INITIAL_PROMPT_AR", "") or "").strip()
+        self._prompt_b64 = (
+            base64.b64encode(prompt.encode("utf-8")).decode("ascii") if prompt else ""
+        )
         self._fallback = local_fallback
         self._consecutive_failures = 0
         self._using_fallback = False
@@ -78,16 +84,20 @@ class RemoteTranscriber:
         pcm = np.clip(audio, -1.0, 1.0)
         pcm = (pcm * 32767.0).astype("<i2").tobytes()
 
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/octet-stream",
+            "X-Mode": self.mode,
+            "X-Task": self._task,
+        }
+        # Vocabulary hint travels with the request so the wordlist lives in
+        # config.py with the rest of the project rather than on the server.
+        # base64 because HTTP headers cannot carry raw UTF-8 Arabic.
+        if self._prompt_b64 and self.mode == "part1":
+            headers["X-Prompt-B64"] = self._prompt_b64
+
         req = urllib.request.Request(
-            f"{self.url}/transcribe",
-            data=pcm,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/octet-stream",
-                "X-Mode": self.mode,
-                "X-Task": self._task,
-            },
+            f"{self.url}/transcribe", data=pcm, method="POST", headers=headers,
         )
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))

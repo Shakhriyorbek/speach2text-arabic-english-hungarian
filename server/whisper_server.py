@@ -29,6 +29,7 @@ Run it:
     ~/wbench/bin/python whisper_server.py
 """
 
+import base64
 import json
 import os
 import sys
@@ -55,6 +56,13 @@ COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
 NLLB_MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", "").strip()
 NLLB_DEVICE = os.environ.get("NLLB_DEVICE", "cuda")
 NLLB_COMPUTE_TYPE = os.environ.get("NLLB_COMPUTE_TYPE", "float16")
+
+# Vocabulary hint for Arabic (Part 1). Whisper mishears rare khutbah words the
+# same way every time — "المجوسي" became "المجلسي" three times in one live test,
+# which then translated as "the councillor" and "the table". Sent by the client
+# so the wordlist is versioned with the project, not stranded on the server.
+# Falls back to this default when the client sends nothing.
+DEFAULT_INITIAL_PROMPT_AR = os.environ.get("WHISPER_INITIAL_PROMPT_AR", "").strip()
 
 # Shared secret. The server refuses to start without one — an open transcription
 # endpoint on a public IP is exactly the mistake that left Ollama world-readable.
@@ -107,7 +115,7 @@ def get_translator():
     return _translator
 
 
-def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate"):
+def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate", prompt: str = ""):
     """int16 PCM -> (text, n_dropped_segments, detected_language).
 
     task="translate" gives ENGLISH (Whisper can emit no other target language).
@@ -116,10 +124,14 @@ def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate"):
     """
     audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
 
+    # Part 1 only: an Arabic prompt would skew Part 2's language auto-detect.
+    hint = (prompt or DEFAULT_INITIAL_PROMPT_AR) if mode == "part1" else ""
+
     segments, info = get_model().transcribe(
         audio,
         task=task,
         language="ar" if mode == "part1" else None,
+        initial_prompt=hint or None,
         beam_size=1,
         temperature=0.0,
         condition_on_previous_text=False,      # stops repetition loops
@@ -245,10 +257,18 @@ class Handler(BaseHTTPRequestHandler):
         task = self.headers.get("X-Task", "translate")
         if task not in ("translate", "transcribe"):
             task = "translate"
+        # Header is base64 so the Arabic survives HTTP's latin-1 header encoding.
+        prompt = ""
+        raw = self.headers.get("X-Prompt-B64", "")
+        if raw:
+            try:
+                prompt = base64.b64decode(raw).decode("utf-8")
+            except Exception:
+                prompt = ""     # a bad hint must never fail the utterance
 
         t0 = time.time()
         try:
-            text, dropped, lang = transcribe_pcm(pcm, mode, task)
+            text, dropped, lang = transcribe_pcm(pcm, mode, task, prompt)
         except Exception as exc:                    # never let one chunk kill it
             print(f"[error] {type(exc).__name__}: {exc}", flush=True)
             self._json(500, {"error": f"{type(exc).__name__}: {exc}"})

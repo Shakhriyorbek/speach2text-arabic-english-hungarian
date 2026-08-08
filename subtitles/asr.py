@@ -62,6 +62,8 @@ _HALLUCINATION_BLOCKLIST = {
     "شكرا لمشاهدتكم",
     "مشاهدة ممتعة",
     "ترجمة نانسي قنقر",
+    "المترجم للقناة",
+    "ترجمة القناة",
     "الى اللقاء",
 }
 
@@ -131,10 +133,18 @@ class Transcriber:
         lang = "ar" if self.mode == "part1" else None
         model = self._model_for_mode()
 
+        # Bias decoding towards khutbah vocabulary. Part 1 only: the prompt is
+        # Arabic, and feeding it to Part 2's auto-detect would skew language
+        # detection towards Arabic for an English talk.
+        prompt = getattr(config, "WHISPER_INITIAL_PROMPT_AR", "") or None
+        if self.mode != "part1":
+            prompt = None
+
         segments, info = model.transcribe(
             audio,
             task="transcribe" if direct else "translate",
             language=lang,
+            initial_prompt=prompt,
             beam_size=1,
             temperature=0.0,
             condition_on_previous_text=False,   # CRITICAL: stops repetition loops

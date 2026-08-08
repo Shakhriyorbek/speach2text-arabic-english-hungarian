@@ -193,13 +193,47 @@ NLLB_LANG_MAP = {"ar": "arb_Arab", "en": "eng_Latn"}
 #   "remote" - NLLB-1.3B on the GPU box, which is already resident for Whisper
 #              and otherwise idle. Falls back to the local 600M automatically,
 #              so an outage costs accuracy rather than the whole screen.
-MT_LOCATION = "cpu"
+MT_LOCATION = "remote"
 
 REMOTE_MT_URL = "http://127.0.0.1:8756"     # same server/tunnel as remote ASR
 REMOTE_MT_TIMEOUT = 8.0                     # a line is ~0.2s on a T4; this is
                                             # a stall guard, not a target
 REMOTE_MT_FAILURES_BEFORE_FALLBACK = 2
 REMOTE_MT_RETRY_EVERY = 20
+
+# --- Whisper vocabulary hint (Part 1 / Arabic only) ---
+# Whisper accepts a short "initial_prompt" that biases decoding towards a
+# vocabulary. Khutbah Arabic contains words that are rare in Whisper's training
+# mix and that it mishears the SAME way every time: in a live test "المجوسي"
+# (the Zoroastrian) came out as "المجلسي" three times running, which then
+# translated as "the councillor" and "the table". A one-letter ASR error, but it
+# erased the person the story was about.
+#
+# Keep this SHORT. The prompt is prepended to every window, so a long one costs
+# latency on every utterance and, worse, Whisper will sometimes emit fragments
+# of the prompt itself as if they had been spoken. Set to "" to disable.
+# DISABLED after measurement — do not re-enable without re-running the A/B.
+# The wordlist below was tried against a real khutbah recording and made things
+# WORSE, in two ways that both reach the screen:
+#   1. Whisper transcribed the prompt itself as if it had been spoken, emitting
+#      "الحمد لله نحمده ونستعينه، رضي الله عنه، عمر بن الخطاب، المجوسي، الركعة،
+#      السراج،" as a subtitle line.
+#   2. It pushed decoding towards captioned-video boilerplate: "المترجم للقناة"
+#      and "ترجمة نانسي قنقر" appeared repeatedly and REPLACED real speech —
+#      "احذروه على دينكم أيها الناس" was lost and became a translator credit.
+# It did help in places (it recovered "وإن الزمان قد استدار كهيئة يوم خلق" and
+# completed "فيحرم ما حل الله"), but losing real khutbah content and printing
+# the prompt on a projector is not a trade worth making.
+# The underlying problem is real — "المجوسي" was misheard as "المجلسي" three
+# times in one sermon — but initial_prompt is the wrong tool for it.
+WHISPER_INITIAL_PROMPT_AR = ""
+
+_TRIED_AND_REJECTED_PROMPT = (
+    "خطبة الجمعة: الحمد لله نحمده ونستعينه ونستغفره، "
+    "وأشهد أن لا إله إلا الله وحده لا شريك له، "
+    "صلى الله عليه وسلم، رضي الله عنه، عمر بن الخطاب، "
+    "المجوسي، الركعة، السراج، الرحى، القمح."
+)
 
 
 # ---------------------------------------------------------------------------
