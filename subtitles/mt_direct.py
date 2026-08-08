@@ -33,11 +33,29 @@ except ImportError as exc:  # pragma: no cover
         "Install with:  pip install ctranslate2 tokenizers"
     ) from exc
 
-import config
+try:
+    import config
+except ImportError:                     # running on the GPU server, which has
+    config = None                       # no project config.py — see _cfg().
 
 
 # Tokens NLLB may emit that must never reach the screen.
 _JUNK = ("</s>", "<pad>", "<unk>")
+
+# Defaults used when config.py is absent. This module is deployed to the GPU box
+# alongside whisper_server.py so that the fiddly part of NLLB — source-language
+# token first, </s> last, target token as decoder prefix — exists in exactly one
+# place. Getting that wrong does not raise; it returns fluent nonsense.
+_DEFAULTS = {
+    "NLLB_MODEL_DIR": "models/nllb-600m-ct2",
+    "NLLB_TARGET_LANG": "hun_Latn",
+    "NLLB_BEAM_SIZE": 2,
+    "NLLB_LANG_MAP": {"ar": "arb_Arab", "en": "eng_Latn"},
+}
+
+
+def _cfg(name):
+    return getattr(config, name, _DEFAULTS[name]) if config else _DEFAULTS[name]
 
 
 class DirectTranslator:
@@ -50,8 +68,9 @@ class DirectTranslator:
     for a single utterance is harmless.
     """
 
-    def __init__(self, model_dir: str | None = None):
-        d = model_dir or config.NLLB_MODEL_DIR
+    def __init__(self, model_dir: str | None = None, device: str = "cpu",
+                 compute_type: str = "int8"):
+        d = model_dir or _cfg("NLLB_MODEL_DIR")
         if not os.path.isdir(d):
             raise FileNotFoundError(
                 f"NLLB model not found at '{d}'. Run install.bat (which builds "
@@ -65,10 +84,10 @@ class DirectTranslator:
                 f"--copy_files tokenizer.json. Re-run the conversion."
             )
 
-        self.tr = ctranslate2.Translator(d, device="cpu", compute_type="int8")
+        self.tr = ctranslate2.Translator(d, device=device, compute_type=compute_type)
         self.tok = Tokenizer.from_file(tok_path)
-        self.tgt = config.NLLB_TARGET_LANG
-        self._beam = config.NLLB_BEAM_SIZE
+        self.tgt = _cfg("NLLB_TARGET_LANG")
+        self._beam = _cfg("NLLB_BEAM_SIZE")
         self._cache: dict[tuple[str, str], str] = {}
 
         # Fail loudly at startup rather than producing fluent nonsense later:
@@ -82,11 +101,12 @@ class DirectTranslator:
         self.src_lang = "ar"       # Whisper code; mapped via config.NLLB_LANG_MAP
 
     def _nllb_src(self) -> str:
-        code = config.NLLB_LANG_MAP.get(self.src_lang)
+        lang_map = _cfg("NLLB_LANG_MAP")
+        code = lang_map.get(self.src_lang)
         if code is None or self.tok.token_to_id(code) is None:
             # Unknown/unmapped language -> fall back to Arabic rather than
             # feeding a bogus token, which would yield confident nonsense.
-            code = config.NLLB_LANG_MAP.get("ar", "arb_Arab")
+            code = lang_map.get("ar", "arb_Arab")
         return code
 
     def translate(self, text: str) -> str:

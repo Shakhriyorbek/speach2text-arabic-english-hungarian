@@ -184,6 +184,23 @@ NLLB_BEAM_SIZE = 2
 # needs an entry too; anything unmapped falls back to Arabic.
 NLLB_LANG_MAP = {"ar": "arb_Arab", "en": "eng_Latn"}
 
+# Where translation runs. Independent of ASR_LOCATION — you can transcribe on
+# the GPU and translate here, or both remotely.
+#   "cpu"    - NLLB-600M on this laptop. Fully offline. The largest model that
+#              fits the latency budget on a laptop CPU, and measurably not good
+#              enough for religious Arabic: on flawless transcription it turned
+#              "we seek His forgiveness" into "we forgive Him".
+#   "remote" - NLLB-1.3B on the GPU box, which is already resident for Whisper
+#              and otherwise idle. Falls back to the local 600M automatically,
+#              so an outage costs accuracy rather than the whole screen.
+MT_LOCATION = "cpu"
+
+REMOTE_MT_URL = "http://127.0.0.1:8756"     # same server/tunnel as remote ASR
+REMOTE_MT_TIMEOUT = 8.0                     # a line is ~0.2s on a T4; this is
+                                            # a stall guard, not a target
+REMOTE_MT_FAILURES_BEFORE_FALLBACK = 2
+REMOTE_MT_RETRY_EVERY = 20
+
 
 # ---------------------------------------------------------------------------
 # Display / subtitle window

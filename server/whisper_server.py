@@ -47,6 +47,15 @@ MODEL_SIZE = os.environ.get("WHISPER_MODEL", "large-v3")
 DEVICE = os.environ.get("WHISPER_DEVICE", "cuda")
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
 
+# Optional translation on the same GPU. NLLB-600M running on the laptop CPU was
+# measured as the accuracy bottleneck once transcription moved to the T4: on
+# flawless Arabic it inverted "we seek His forgiveness" into "we forgive Him".
+# A larger NLLB is too slow on that CPU but trivial for an idle T4, which is
+# already resident for Whisper. Empty NLLB_MODEL_DIR disables the endpoint.
+NLLB_MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", "").strip()
+NLLB_DEVICE = os.environ.get("NLLB_DEVICE", "cuda")
+NLLB_COMPUTE_TYPE = os.environ.get("NLLB_COMPUTE_TYPE", "float16")
+
 # Shared secret. The server refuses to start without one — an open transcription
 # endpoint on a public IP is exactly the mistake that left Ollama world-readable.
 TOKEN = os.environ.get("WHISPER_SERVER_TOKEN", "").strip()
@@ -62,6 +71,7 @@ LOGPROB_MIN = -1.0
 NO_SPEECH_MAX = 0.6
 
 _model = None
+_translator = None
 
 
 def get_model():
@@ -72,6 +82,29 @@ def get_model():
         _model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
         print(f"model ready in {time.time() - t0:.1f}s", flush=True)
     return _model
+
+
+def get_translator():
+    """Lazily load NLLB, or None when translation is not configured here."""
+    global _translator
+    if not NLLB_MODEL_DIR:
+        return None
+    if _translator is None:
+        # mt_direct.py is deployed next to this file. Reused rather than
+        # reimplemented: the source-token/decoder-prefix handling it contains
+        # fails silently (fluent nonsense) if it is written twice and drifts.
+        from mt_direct import DirectTranslator
+
+        print(f"loading NLLB from {NLLB_MODEL_DIR} on {NLLB_DEVICE} "
+              f"({NLLB_COMPUTE_TYPE})...", flush=True)
+        t0 = time.time()
+        _translator = DirectTranslator(
+            model_dir=NLLB_MODEL_DIR,
+            device=NLLB_DEVICE,
+            compute_type=NLLB_COMPUTE_TYPE,
+        )
+        print(f"translator ready in {time.time() - t0:.1f}s", flush=True)
+    return _translator
 
 
 def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate"):
@@ -134,16 +167,63 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._json(200, {"ok": True, "model": MODEL_SIZE, "device": DEVICE})
+            self._json(200, {
+                "ok": True,
+                "model": MODEL_SIZE,
+                "device": DEVICE,
+                # The client uses this to decide whether it may send text here
+                # at all, rather than discovering it via a 404 mid-sermon.
+                "translate": bool(NLLB_MODEL_DIR),
+                "translate_model": os.path.basename(NLLB_MODEL_DIR) or None,
+            })
         else:
             self._json(404, {"error": "not found"})
 
+    def _do_translate(self):
+        tr = get_translator()
+        if tr is None:
+            self._json(501, {"error": "translation not enabled on this server"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._json(400, {"error": "bad Content-Length"})
+            return
+        if length <= 0:
+            self._json(400, {"error": "empty body"})
+            return
+        if length > 64 * 1024:          # one utterance, not a document
+            self._json(413, {"error": "text too large"})
+            return
+
+        text = self.rfile.read(length).decode("utf-8", errors="replace").strip()
+        if not text:
+            self._json(200, {"text": "", "ms": 0})
+            return
+
+        src = self.headers.get("X-Src-Lang", "ar")
+        t0 = time.time()
+        try:
+            tr.src_lang = src
+            out = tr.translate(text)
+        except Exception as exc:                    # never let one line kill it
+            print(f"[translate error] {type(exc).__name__}: {exc}", flush=True)
+            self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
+            return
+
+        ms = int((time.time() - t0) * 1000)
+        print(f"  translate[{src}] {ms}ms  {text[:40]} -> {out[:40]}", flush=True)
+        self._json(200, {"text": out, "ms": ms})
+
     def do_POST(self):
-        if self.path != "/transcribe":
+        if self.path not in ("/transcribe", "/translate"):
             self._json(404, {"error": "not found"})
             return
         if not self._authorized():
             self._json(401, {"error": "bad or missing bearer token"})
+            return
+        if self.path == "/translate":
+            self._do_translate()
             return
 
         try:
@@ -193,6 +273,7 @@ def main():
         )
     get_model()      # load before accepting traffic, so the first khutbah
                      # utterance is not charged the model load time
+    get_translator() # same for NLLB when this box also translates
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"listening on {HOST}:{PORT}", flush=True)
     try:

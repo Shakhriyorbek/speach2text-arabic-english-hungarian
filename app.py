@@ -65,6 +65,27 @@ def run_local():
                   f"starting on the local model instead.")
         transcriber = remote
 
+    # Same idea for translation. Only offered on the direct path: the pivot
+    # path's opus-mt is already fast and the GPU server speaks NLLB only.
+    if direct and getattr(config, "MT_LOCATION", "cpu").lower() == "remote":
+        from subtitles.mt_remote import RemoteTranslator
+
+        remote_mt = RemoteTranslator(local_fallback=translator)
+        info = remote_mt.health()
+        if info and info.get("translate"):
+            print(f"Remote MT: {info.get('translate_model')} "
+                  f"at {config.REMOTE_MT_URL}")
+            translator = remote_mt
+        elif info:
+            # Server is up but was started without NLLB_MODEL_DIR. Saying so is
+            # better than silently translating locally and wondering later why
+            # the quality did not change.
+            print(f"Remote MT: server at {config.REMOTE_MT_URL} has translation "
+                  f"DISABLED — translating on this laptop (600M).")
+        else:
+            print(f"Remote MT at {config.REMOTE_MT_URL} is NOT responding — "
+                  f"translating on this laptop (600M).")
+
     audio_q: "queue.Queue" = queue.Queue(maxsize=config.ASR_QUEUE_MAX)
     ui_q: "queue.Queue" = queue.Queue()
 
