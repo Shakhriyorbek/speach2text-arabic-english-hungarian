@@ -30,7 +30,19 @@ import config
 # Classic Whisper "silence hallucinations" — short canned phrases it emits when
 # fed near-silence. We drop these outright. Matched case-insensitively, after
 # stripping punctuation/whitespace.
+#
+# These originally covered English only, which was correct while every path ran
+# task="translate". On the direct path Whisper emits ARABIC, so none of the
+# English entries can ever match and the canned phrases reach the projector: a
+# live khutbah test put "اشتركوا في القناة" ("subscribe to the channel") on
+# screen during a pause. large-v3 is trained on YouTube audio and falls back to
+# channel boilerplate on silence, so the Arabic equivalents are listed too.
+#
+# Nothing here may be a phrase a khatib would actually say. "الحمد لله" is
+# deliberately absent — it is both a stock hallucination AND the opening of the
+# sermon, and dropping real praise is worse than passing an occasional stray.
 _HALLUCINATION_BLOCKLIST = {
+    # English (task="translate" / Part 2)
     "thank you",
     "thanks for watching",
     "thank you for watching",
@@ -40,11 +52,36 @@ _HALLUCINATION_BLOCKLIST = {
     "bye bye",
     ".",
     "",
+    # Arabic (task="transcribe" / direct path)
+    "اشتركوا في القناة",
+    "اشتركوا في القناة ولا تنسوا تفعيل الجرس",
+    "لا تنسوا الاشتراك في القناة",
+    "لا تنسوا الاشتراك",
+    "شكرا",
+    "شكرا لكم",
+    "شكرا لمشاهدتكم",
+    "مشاهدة ممتعة",
+    "ترجمة نانسي قنقر",
+    "الى اللقاء",
 }
 
 
-def _normalize(text: str) -> str:
+def normalize(text: str) -> str:
+    """Strip punctuation/case so canned phrases match however they are punctuated."""
     return re.sub(r"[^\w\s]", "", text, flags=re.UNICODE).strip().lower()
+
+
+_normalize = normalize      # existing internal callers
+
+
+def is_hallucination(text: str) -> bool:
+    """True when `text` is a known canned phrase rather than real speech.
+
+    Shared with the remote path so both transcribers filter identically —
+    previously this lived only in Transcriber, so switching ASR_LOCATION to
+    "remote" silently disabled hallucination filtering altogether.
+    """
+    return _normalize(text) in _HALLUCINATION_BLOCKLIST
 
 
 class Transcriber:

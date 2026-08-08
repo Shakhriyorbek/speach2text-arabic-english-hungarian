@@ -25,6 +25,7 @@ import urllib.request
 import numpy as np
 
 import config
+from subtitles.asr import is_hallucination, normalize
 
 
 class RemoteTranscriber:
@@ -53,6 +54,7 @@ class RemoteTranscriber:
             )
 
         self.mode = "part1"
+        self._last_text = ""
         self._fallback = local_fallback
         self._consecutive_failures = 0
         self._using_fallback = False
@@ -90,7 +92,26 @@ class RemoteTranscriber:
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         self.last_language = payload.get("language") or "ar"
-        return (payload.get("text") or "").strip()
+        return self._filter((payload.get("text") or "").strip())
+
+    def _filter(self, text: str) -> str:
+        """Apply the same hallucination guards the local Transcriber applies.
+
+        The server runs Whisper's own confidence guards (no_speech, compression
+        ratio, logprob) but cannot catch a *confident* canned phrase: during a
+        live khutbah large-v3 emitted "اشتركوا في القناة" on a pause, which
+        scored as perfectly good speech and went to the projector. These guards
+        lived only in Transcriber, so the remote path had none at all.
+        """
+        if not text:
+            return ""
+        if is_hallucination(text):
+            return ""
+        # An exact repeat of the previous line is a decoding loop, not speech.
+        if normalize(text) and normalize(text) == normalize(self._last_text):
+            return ""
+        self._last_text = text
+        return text
 
     def _note_failure(self, exc: Exception):
         self._consecutive_failures += 1

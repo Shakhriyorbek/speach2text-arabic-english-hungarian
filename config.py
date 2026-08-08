@@ -26,7 +26,7 @@ BACKEND = "local"
 #               WHISPER_SERVER_TOKEN in the environment. Falls back to the local
 #               model automatically if the server cannot be reached.
 # The Hungarian translation always stays on this laptop either way.
-ASR_LOCATION = "cpu"
+ASR_LOCATION = "remote"
 
 # --- remote ASR settings (ignored when ASR_LOCATION = "cpu") ---
 # Where the GPU box is reachable, no trailing slash. Two ways to point at it:
@@ -100,7 +100,12 @@ LOGPROB_MIN = -1.0           # drop a segment the model is very unsure about
 # None = the Windows default input device. To use a specific mic, run
 #   python -m sounddevice
 # to list devices, then put the device's index number here (an int).
-MIC_DEVICE = None
+MIC_DEVICE = 1               # 1 = "Microphone Array (Intel Smart Sound)", the
+                             # built-in mic. Pinned rather than left as None so
+                             # that a Bluetooth headset connecting mid-sermon
+                             # cannot silently become the Windows default and
+                             # take over the input. Re-check the index with
+                             # "python -m sounddevice" on a different machine.
 
 SAMPLE_RATE = 16000          # Whisper and webrtcvad both require 16 kHz.
 FRAME_MS = 30                # webrtcvad frame length (10/20/30 ms allowed).

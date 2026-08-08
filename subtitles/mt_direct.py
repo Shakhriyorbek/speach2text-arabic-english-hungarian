@@ -22,6 +22,7 @@ setup-only tool.
 from __future__ import annotations
 
 import os
+import re
 
 try:
     import ctranslate2
@@ -105,11 +106,21 @@ class DirectTranslator:
         enc = self.tok.encode(text, add_special_tokens=False)
         source = [src] + enc.tokens + ["</s>"]
 
+        # NLLB-600M is a SENTENCE-level model. Handed a long unpunctuated run of
+        # speech it degenerates into a repetition loop: measured on 90s of
+        # khutbah audio it emitted "a Had-d-t, a Had-d-t, ..." for 27.5s. The
+        # VAD's MAX_UTTERANCE_S normally keeps input far below that, but a dense
+        # 5s utterance must never be able to freeze the subtitles, so the loop is
+        # blocked here rather than assumed away upstream.
         results = self.tr.translate_batch(
             [source],
             target_prefix=[[self.tgt]],
             beam_size=self._beam,
-            max_decoding_length=256,   # safety net against runaway generation
+            no_repeat_ngram_size=3,
+            repetition_penalty=1.1,
+            # Output should track input length; a translation several times
+            # longer than its source is degeneration, not translation.
+            max_decoding_length=min(256, max(32, 3 * len(enc.tokens))),
         )
         hyp = results[0].hypotheses[0]
 
@@ -117,6 +128,11 @@ class DirectTranslator:
         out = [t for t in hyp if t not in _JUNK and t != self.tgt]
         ids = [self.tok.token_to_id(t) for t in out]
         result = self.tok.decode([i for i in ids if i is not None]).strip()
+
+        # NLLB's training data is heavily subtitle corpora, so it sometimes
+        # opens a line with a speaker dash ("- Köszönöm."). Harmless in meaning
+        # but it reads as a rendering glitch on a projector.
+        result = re.sub(r"^[-–—]\s*", "", result)
 
         # Liturgy repeats; bound the cache anyway for a long sermon.
         if len(self._cache) > 500:

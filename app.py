@@ -140,7 +140,13 @@ def run_local():
 
     chunker.start()
     worker.start()
-    print("Ready (offline mode). F1 = Part 1 (Arabic), F2 = Part 2 (auto).")
+    # "offline" is a promise the operator relies on: it means a dead network
+    # cannot affect the subtitles. That is only true when transcription is local
+    # — the remote path needs the GPU box reachable, and silently degrades to
+    # the local model if it is not.
+    offline = getattr(config, "ASR_LOCATION", "cpu").lower() != "remote"
+    where = "offline mode" if offline else "GPU mode — needs the server reachable"
+    print(f"Ready ({where}). F1 = Part 1 (Arabic), F2 = Part 2 (auto).")
     print("F11 fullscreen · +/- font · P pause · Esc quit.")
 
     try:
