@@ -154,6 +154,199 @@ _PATTERNS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# The 99 Names of Allah (asmā' al-ḥusnā)
+# ---------------------------------------------------------------------------
+# These are handled DIFFERENTLY from the person names above, for two reasons.
+#
+# 1. They must be TRANSLATED, not transliterated. "الرحمن" carries meaning a
+#    Hungarian congregation needs — "a Könyörületes", not "ar-Rahmán".
+#
+# 2. Most of them are also ORDINARY ARABIC WORDS, so substituting them
+#    unconditionally would corrupt normal speech:
+#         السلام   divine name, and the everyday greeting (السلام عليكم)
+#         الجامع   divine name, and the ordinary word for MOSQUE
+#         المؤمن   divine name, and "the believer" — in a khutbah, a human
+#         الشهيد   divine name, and "the martyr"
+#         الحق     divine name, and simply "the truth"
+#    A blanket replace would turn "السلام عليكم" into "a Béke Forrása عليكم".
+#
+# So a name here is only substituted inside a DIVINE CONTEXT: directly after an
+# anchor (الله, اللهم, سبحان, تبارك, or the vocative يا), or chained onto another
+# name that already matched. That covers how they actually occur —
+# "بسم الله الرحمن الرحيم", "هو الله الملك القدوس السلام المؤمن المهيمن",
+# "يا رحمن يا رحيم" — while leaving a bare الجامع or السلام عليكم alone.
+#
+# As with the person names, a Hungarian speaker should review these renderings.
+DIVINE_NAMES = {
+    "الرحمن": "a Könyörületes",
+    "الرحيم": "az Irgalmas",
+    "الملك": "a Király",
+    "القدوس": "a Szent",
+    "السلام": "a Béke Forrása",
+    "المؤمن": "a Biztonság Adományozója",
+    "المهيمن": "az Őrző",
+    "العزيز": "a Hatalmas",
+    "الجبار": "a Mindenható",
+    "المتكبر": "a Fenséges",
+    "الخالق": "a Teremtő",
+    "البارئ": "az Alkotó",
+    "المصور": "a Formáló",
+    "الغفار": "a Megbocsátó",
+    "القهار": "a Legyőzhetetlen",
+    "الوهاب": "az Adományozó",
+    "الرزاق": "a Gondviselő",
+    "الفتاح": "a Megnyitó",
+    "العليم": "a Mindentudó",
+    "القابض": "a Szűkítő",
+    "الباسط": "a Bőkezűen Adó",
+    "الخافض": "a Megalázó",
+    "الرافع": "a Felemelő",
+    "المعز": "a Megtisztelő",
+    "المذل": "a Megszégyenítő",
+    "السميع": "a Mindent Halló",
+    "البصير": "a Mindent Látó",
+    "الحكم": "a Bíró",
+    "العدل": "az Igazságos",
+    "اللطيف": "a Gyengéd",
+    "الخبير": "a Mindenről Tudó",
+    "الحليم": "a Türelmes",
+    "العظيم": "a Magasztos",
+    "الغفور": "a Megbocsátó",
+    "الشكور": "a Hálát Elfogadó",
+    "العلي": "a Magasságos",
+    "الكبير": "a Nagy",
+    "الحفيظ": "az Oltalmazó",
+    "المقيت": "a Fenntartó",
+    "الحسيب": "a Számonkérő",
+    "الجليل": "a Fenséges",
+    "الكريم": "a Nagylelkű",
+    "الرقيب": "az Éber Őrző",
+    "المجيب": "az Imameghallgató",
+    "الواسع": "a Végtelen",
+    "الحكيم": "a Bölcs",
+    "الودود": "a Szerető",
+    "المجيد": "a Dicsőséges",
+    "الباعث": "a Feltámasztó",
+    "الشهيد": "a Tanú",
+    "الحق": "az Igazság",
+    "الوكيل": "a Gondviselő",
+    "القوي": "az Erős",
+    "المتين": "a Rendíthetetlen",
+    "الولي": "a Pártfogó",
+    "الحميد": "a Dicséretre Méltó",
+    "المحصي": "a Számontartó",
+    "المبدئ": "a Kezdeményező",
+    "المعيد": "az Újrateremtő",
+    "المحيي": "az Életet Adó",
+    "المميت": "a Halált Adó",
+    "الحي": "az Élő",
+    "القيوم": "az Önmagában Létező",
+    "الواجد": "a Megtaláló",
+    "الماجد": "a Nemes",
+    "الواحد": "az Egyetlen",
+    "الأحد": "az Egy",
+    "الصمد": "az Örökkévaló Menedék",
+    "القادر": "a Mindenre Képes",
+    "المقتدر": "a Korlátlan Hatalmú",
+    "المقدم": "az Előrehozó",
+    "المؤخر": "a Késleltető",
+    "الأول": "az Első",
+    "الآخر": "az Utolsó",
+    "الظاهر": "a Nyilvánvaló",
+    "الباطن": "a Rejtett",
+    "الوالي": "a Kormányzó",
+    "المتعالي": "a Magasztos",
+    "البر": "a Jóságos",
+    "التواب": "a Megbocsátást Elfogadó",
+    "المنتقم": "a Megtorló",
+    "العفو": "az Elnéző",
+    "الرؤوف": "a Kegyes",
+    "مالك الملك": "a Királyság Ura",
+    "ذو الجلال والإكرام": "a Fenség és Nagylelkűség Ura",
+    "المقسط": "a Méltányos",
+    "الجامع": "az Összegyűjtő",
+    "الغني": "az Önellátó",
+    "المغني": "a Gazdagító",
+    "المانع": "a Visszatartó",
+    "الضار": "a Kárt Okozó",
+    "النافع": "a Hasznot Adó",
+    "النور": "a Fény",
+    "الهادي": "az Útmutató",
+    "البديع": "a Páratlan Teremtő",
+    "الباقي": "az Örökkévaló",
+    "الوارث": "az Örökös",
+    "الرشيد": "a Helyes Útra Vezető",
+    "الصبور": "a Végtelenül Türelmes",
+}
+
+# Words that open a divine context. After one of these, a run of divine names is
+# substituted. "يا" is the vocative, which drops the article: يا رحمن, not
+# يا الرحمن — so bare forms are registered too.
+_ANCHORS = {
+    "الله", "اللهم", "لله", "بالله", "والله", "تالله", "فالله",
+    "سبحان", "سبحانه", "تبارك", "يا",
+}
+
+# Joiners that continue a chain without being names themselves.
+_CHAIN_GLUE = {"و", "الـ"}
+
+_DIVINE_LOOKUP = {}
+for _ar, _hu in DIVINE_NAMES.items():
+    _DIVINE_LOOKUP[_ar] = _hu
+    if _ar.startswith("ال") and len(_ar) > 3:
+        _DIVINE_LOOKUP[_ar[2:]] = _hu          # vocative / anarthrous form
+
+_STRIP = "،.:؛!؟" + "".join(chr(c) for c in range(0x064B, 0x0653))
+
+
+def _bare(token: str) -> str:
+    """Token without punctuation, diacritics, or a leading conjunction waw."""
+    t = token.strip(_STRIP)
+    for d in _STRIP:
+        t = t.replace(d, "")
+    return t
+
+
+def substitute_divine(text: str) -> str:
+    """Translate the 99 Names, but only where they denote God.
+
+    Walks left to right: an anchor opens a chain, consecutive names inside the
+    chain are translated, and the first token that is neither a name nor glue
+    closes it. Outside a chain the words are left completely alone, so ordinary
+    uses of السلام, الجامع, المؤمن and friends survive untouched.
+    """
+    if not text:
+        return text
+
+    out, in_chain = [], False
+    for token in text.split(" "):
+        core = _bare(token)
+
+        # A waw prefix ("والرحيم") keeps the chain and is re-attached below.
+        waw = ""
+        if in_chain and len(core) > 3 and core.startswith("و") and core[1:] in _DIVINE_LOOKUP:
+            waw, core = "و", core[1:]
+
+        if in_chain and core in _DIVINE_LOOKUP:
+            out.append(("és " if waw else "") + _DIVINE_LOOKUP[core])
+            continue                       # still in the chain
+
+        if core in _ANCHORS:
+            in_chain = True
+            out.append(token)
+            continue
+
+        if core in _CHAIN_GLUE and in_chain:
+            out.append(token)
+            continue
+
+        in_chain = False
+        out.append(token)
+
+    return " ".join(out)
+
+
 def substitute(text: str) -> str:
     """Replace known Arabic names with their Hungarian forms.
 
@@ -165,4 +358,4 @@ def substitute(text: str) -> str:
         return text
     for pattern, hungarian in _PATTERNS:
         text = pattern.sub(hungarian, text)
-    return text
+    return substitute_divine(text)
