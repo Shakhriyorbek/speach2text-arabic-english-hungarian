@@ -38,6 +38,15 @@ try:
 except ImportError:                     # running on the GPU server, which has
     config = None                       # no project config.py — see _cfg().
 
+try:
+    from names import substitute as _substitute_names      # deployed flat
+except ImportError:
+    try:
+        from subtitles.names import substitute as _substitute_names
+    except ImportError:                 # names.py not deployed: translate
+        def _substitute_names(t):       # without the fix rather than crash
+            return t
+
 
 # Tokens NLLB may emit that must never reach the screen.
 _JUNK = ("</s>", "<pad>", "<unk>")
@@ -113,6 +122,13 @@ class DirectTranslator:
         text = text.strip()
         if not text:
             return ""
+
+        # Swap known proper names for their Hungarian forms before the model
+        # sees them; NLLB copies a Latin-script run through verbatim but would
+        # otherwise translate the name's literal meaning ("Abu Lu'lu'a" ->
+        # "the father of the pearl"). See names.py.
+        if self.src_lang == "ar":
+            text = _substitute_names(text)
 
         src = self._nllb_src()
         key = (src, text)
