@@ -43,6 +43,7 @@ congregation.
 """
 
 import re
+import time
 
 # Arabic surface form -> Hungarian rendering.
 NAME_MAP = {
@@ -291,6 +292,38 @@ _ANCHORS = {
 # Joiners that continue a chain without being names themselves.
 _CHAIN_GLUE = {"و", "الـ"}
 
+# Names that are ALSO common everyday words. These are substituted only when an
+# anchor appears in the SAME utterance — never on a chain carried in from the
+# previous one. Carrying is a guess about speech we can no longer see, and
+# guessing wrong here rewrites the most common phrase in the mosque: without
+# this, an utterance ending mid-formula would turn a following "السلام عليكم"
+# into "a Béke Forrása عليكم". The unambiguous names (الرحمن, الصمد, القهار …)
+# carry freely, which is what the basmala case actually needs.
+_CARRY_UNSAFE = {
+    "السلام", "سلام",
+    "المؤمن", "مؤمن",
+    "الجامع", "جامع",
+    "الحق", "حق",
+    "النور", "نور",
+    "الشهيد", "شهيد",
+    "الملك", "ملك",
+    "الكريم", "كريم",
+    "العظيم", "عظيم",
+    "الكبير", "كبير",
+    "الواحد", "واحد",
+    "الأول", "أول",
+    "الآخر", "آخر",
+    "العدل", "عدل",
+    "الحي", "حي",
+    "الغني", "غني",
+    "البر", "بر",
+    "الوكيل", "وكيل",
+    "الولي", "ولي",
+    "الهادي", "هادي",
+    "الوارث", "وارث",
+    "الباقي", "باقي",
+}
+
 _DIVINE_LOOKUP = {}
 for _ar, _hu in DIVINE_NAMES.items():
     _DIVINE_LOOKUP[_ar] = _hu
@@ -308,18 +341,26 @@ def _bare(token: str) -> str:
     return t
 
 
-def substitute_divine(text: str) -> str:
+def substitute_divine(text: str, chain_open: bool = False):
     """Translate the 99 Names, but only where they denote God.
 
     Walks left to right: an anchor opens a chain, consecutive names inside the
     chain are translated, and the first token that is neither a name nor glue
     closes it. Outside a chain the words are left completely alone, so ordinary
     uses of السلام, الجامع, المؤمن and friends survive untouched.
+
+    ``chain_open`` starts the walk already inside a chain, for when the previous
+    utterance ended mid-formula. Returns ``(text, chain_open_at_end)``.
     """
     if not text:
-        return text
+        return text, chain_open
 
-    out, in_chain = [], False
+    out, in_chain = [], bool(chain_open)
+    # True once an anchor is seen in THIS text. Until then any open chain is
+    # inherited from the previous utterance, and the ambiguous names are held
+    # back — see _CARRY_UNSAFE.
+    anchored_here = False
+
     for token in text.split(" "):
         core = _bare(token)
 
@@ -329,11 +370,18 @@ def substitute_divine(text: str) -> str:
             waw, core = "و", core[1:]
 
         if in_chain and core in _DIVINE_LOOKUP:
+            if not anchored_here and core in _CARRY_UNSAFE:
+                # Too likely to be the ordinary word. Close the inherited chain
+                # rather than gamble on a formula we cannot see the start of.
+                in_chain = False
+                out.append(token)
+                continue
             out.append(("és " if waw else "") + _DIVINE_LOOKUP[core])
             continue                       # still in the chain
 
         if core in _ANCHORS:
             in_chain = True
+            anchored_here = True
             out.append(token)
             continue
 
@@ -344,18 +392,65 @@ def substitute_divine(text: str) -> str:
         in_chain = False
         out.append(token)
 
-    return " ".join(out)
+    return " ".join(out), in_chain
 
 
-def substitute(text: str) -> str:
+def substitute(text: str, chain_open: bool = False):
     """Replace known Arabic names with their Hungarian forms.
 
     Applied to the SOURCE text, before translation. Returns mixed-script text
     (Hungarian names, Arabic everything else), which is deliberate: NLLB copies
     the Latin run through verbatim and translates the rest.
+
+    Returns ``(text, chain_open_at_end)``; see Substituter for the stateful
+    wrapper that carries that flag between utterances.
     """
     if not text:
-        return text
+        return text, chain_open
     for pattern, hungarian in _PATTERNS:
         text = pattern.sub(hungarian, text)
-    return substitute_divine(text)
+    return substitute_divine(text, chain_open)
+
+
+class Substituter:
+    """substitute() plus the memory to span an utterance boundary.
+
+    The VAD cuts speech every few seconds without regard for grammar, so a
+    formula routinely straddles two utterances. Measured live: "بسم الله الرحمن
+    الرحيم" split so that "الله" landed in one chunk and "الرحمن الرحيم" in the
+    next — with no anchor in its own chunk the pair went unsubstituted, and NLLB
+    rendered it in the WRONG ORDER ("Az irgalmas, a könyörületes"). The same two
+    words were correct moments earlier when they arrived with the anchor.
+
+    Carrying the chain is deliberately conservative, because the failure mode in
+    the other direction is worse — a stale anchor turning an ordinary
+    "السلام عليكم" into "a Béke Forrása عليكم":
+
+      * the carry survives exactly ONE utterance, then lapses;
+      * it lapses anyway after CARRY_SECONDS, so a pause ends the formula the
+        way a listener would hear it;
+      * it only ever matters when the next utterance BEGINS with a divine name,
+        since anything else closes the chain on the first token regardless.
+    """
+
+    CARRY_SECONDS = 4.0
+
+    def __init__(self, carry_seconds: float | None = None):
+        self._carry_seconds = (
+            self.CARRY_SECONDS if carry_seconds is None else carry_seconds
+        )
+        self._chain_open = False
+        self._last_at = 0.0
+
+    def reset(self):
+        """Forget any open chain — call on mode change or after a long gap."""
+        self._chain_open = False
+        self._last_at = 0.0
+
+    def apply(self, text: str) -> str:
+        now = time.monotonic()
+        fresh = (now - self._last_at) <= self._carry_seconds
+        carry = self._chain_open and fresh
+        out, self._chain_open = substitute(text, chain_open=carry)
+        self._last_at = now
+        return out

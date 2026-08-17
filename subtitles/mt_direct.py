@@ -39,13 +39,17 @@ except ImportError:                     # running on the GPU server, which has
     config = None                       # no project config.py — see _cfg().
 
 try:
-    from names import substitute as _substitute_names      # deployed flat
+    from names import Substituter as _Substituter          # deployed flat
 except ImportError:
     try:
-        from subtitles.names import substitute as _substitute_names
+        from subtitles.names import Substituter as _Substituter
     except ImportError:                 # names.py not deployed: translate
-        def _substitute_names(t):       # without the fix rather than crash
-            return t
+        class _Substituter:             # without the fix rather than crash
+            def apply(self, t):
+                return t
+
+            def reset(self):
+                pass
 
 
 # Tokens NLLB may emit that must never reach the screen.
@@ -108,6 +112,7 @@ class DirectTranslator:
             )
 
         self.src_lang = "ar"       # Whisper code; mapped via config.NLLB_LANG_MAP
+        self._names = _Substituter()
 
     def _nllb_src(self) -> str:
         lang_map = _cfg("NLLB_LANG_MAP")
@@ -128,7 +133,7 @@ class DirectTranslator:
         # otherwise translate the name's literal meaning ("Abu Lu'lu'a" ->
         # "the father of the pearl"). See names.py.
         if self.src_lang == "ar":
-            text = _substitute_names(text)
+            text = self._names.apply(text)
 
         src = self._nllb_src()
         key = (src, text)
