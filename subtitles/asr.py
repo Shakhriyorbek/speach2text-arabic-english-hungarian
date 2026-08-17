@@ -121,7 +121,7 @@ class Transcriber:
         size = config.MODEL_SIZE_PART1 if self.mode == "part1" else config.MODEL_SIZE_PART2
         return self._models[size]
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, is_partial: bool = False) -> str:
         """Return text for ``audio`` (float32 mono @16 kHz), or "".
 
         On the pivot path the text is ENGLISH (Whisper's translate task only
@@ -183,6 +183,15 @@ class Transcriber:
         norm = _normalize(text)
         if norm in _HALLUCINATION_BLOCKLIST:
             return ""
+
+        # Streaming snapshots deliberately skip the repeat guard and do not
+        # update _last_text. The final result of an utterance is usually
+        # IDENTICAL to its last snapshot, so letting snapshots arm the guard
+        # would suppress the very line that should be committed to history —
+        # the subtitle would flicker up as provisional text and then vanish.
+        if is_partial:
+            return text
+
         # Exact repeat of the previous emitted line -> almost always a loop.
         if norm and norm == _normalize(self._last_text):
             return ""

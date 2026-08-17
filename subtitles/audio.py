@@ -64,6 +64,15 @@ class UtteranceChunker:
 
         self._silence_end_frames = max(1, int(config.SILENCE_END_MS / config.FRAME_MS))
         self._max_frames = int(config.MAX_UTTERANCE_S * 1000 / config.FRAME_MS)
+
+        # Streaming snapshots of the utterance currently being spoken.
+        self._partial_every_frames = max(
+            1, int(getattr(config, "PARTIAL_EVERY_MS", 1000) / config.FRAME_MS))
+        self._partial_min_frames = max(
+            1, int(getattr(config, "PARTIAL_MIN_MS", 1200) / config.FRAME_MS))
+        self._partial_lock = threading.Lock()
+        self._partial_audio = None
+        self._last_partial_frames = 0
         self._min_frames = max(1, int(config.MIN_UTTERANCE_MS / config.FRAME_MS))
 
         self._stream = None
@@ -193,10 +202,52 @@ class UtteranceChunker:
 
                 if ended or too_long:
                     self._emit(voiced, trailing_silence=num_silence)
+                    self._clear_partial()
                     state = _IDLE
                     voiced = []
                     num_silence = 0
                     self._pre_roll.clear()
+                else:
+                    self._maybe_offer_partial(voiced)
+
+    # -- in-progress snapshots ---------------------------------------------
+    #
+    # A single slot rather than a queue, deliberately: a superseded snapshot is
+    # worthless, so the newest simply overwrites the pending one. Queuing them
+    # would build a backlog of stale text and make the display lag further
+    # behind the more the speaker said — the opposite of the point.
+
+    def _maybe_offer_partial(self, frames):
+        if not getattr(config, "STREAMING_PARTIALS", False):
+            return
+        n = len(frames)
+        if n < self._partial_min_frames:
+            return
+        if n - self._last_partial_frames < self._partial_every_frames:
+            return
+        self._last_partial_frames = n
+
+        pcm = b"".join(frames)
+        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        with self._partial_lock:
+            self._partial_audio = audio
+
+    def _clear_partial(self):
+        self._last_partial_frames = 0
+        with self._partial_lock:
+            self._partial_audio = None
+
+    def take_partial(self):
+        """Return the newest in-progress snapshot, or None. Consumes it."""
+        with self._partial_lock:
+            audio = self._partial_audio
+            self._partial_audio = None
+        return audio
+
+    def has_partial(self) -> bool:
+        """True when a newer snapshot is already waiting."""
+        with self._partial_lock:
+            return self._partial_audio is not None
 
     def _emit(self, frames, trailing_silence=0):
         # Drop the trailing pure-silence frames we accumulated before closing.

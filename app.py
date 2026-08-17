@@ -92,12 +92,21 @@ def run_local():
     chunker = UtteranceChunker(audio_q)
     stop_event = threading.Event()
 
+    streaming = bool(getattr(config, "STREAMING_PARTIALS", False))
+
     def asr_mt_loop():
         while not stop_event.is_set():
+            # Completed utterances always win. A snapshot of speech still in
+            # progress is only worth processing when nothing final is waiting —
+            # otherwise provisional text would delay the real thing.
+            is_final = True
             try:
-                audio = audio_q.get(timeout=0.2)
+                audio = audio_q.get(timeout=0.05 if streaming else 0.2)
             except queue.Empty:
-                continue
+                audio = chunker.take_partial() if streaming else None
+                if audio is None:
+                    continue
+                is_final = False
 
             # Surface any drop that happened while this chunk waited.
             if chunker.dropped.is_set():
@@ -107,11 +116,17 @@ def run_local():
             try:
                 # Pivot path: this is English. Direct path: it is the spoken
                 # language (Arabic for Part 1).
-                source_text = transcriber.transcribe(audio)
+                source_text = transcriber.transcribe(audio, is_partial=not is_final)
             except Exception as exc:  # never let one bad chunk kill the loop
                 print(f"[ASR error] {exc}")
                 continue
             if not source_text:
+                continue
+
+            # A snapshot that arrived while a newer one is already pending is
+            # stale before it is even translated; drop it rather than pay for
+            # the translation and then show outdated text.
+            if not is_final and chunker.has_partial():
                 continue
 
             try:
@@ -124,6 +139,14 @@ def run_local():
                 print(f"[MT error] {exc}")
                 continue
             if not hungarian:
+                continue
+
+            if not is_final:
+                # Provisional: replaces the in-progress line in place, and is
+                # superseded when the utterance closes. Not logged — the console
+                # is the record of what was actually said, and every snapshot is
+                # a draft of the next final line.
+                ui_q.put(("partial", hungarian))
                 continue
 
             ui_q.put(("line", hungarian, source_text if config.SHOW_ENGLISH else None))

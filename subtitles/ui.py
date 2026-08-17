@@ -161,9 +161,9 @@ class SubtitleWindow:
         # An in-progress (interim) line, if any, hangs below as the newest — it
         # is replaced in place as the speaker continues, then promoted to
         # history when the final result arrives.
-        rows = list(self._history)
+        rows = [(hu, en, False) for hu, en in self._history]
         if self._partial:
-            rows.append((self._partial, None))
+            rows.append((self._partial, None, True))
         rows = rows[-config.MAX_LINES:]
         # Pad so the block stays vertically centred.
         pad = config.MAX_LINES - len(rows)
@@ -174,15 +174,16 @@ class SubtitleWindow:
             idx += 1
 
         n = len(rows)
-        for i, (hu, en) in enumerate(rows):
+        for i, (hu, en, provisional) in enumerate(rows):
             is_newest = (i == n - 1)
             text = hu
             if config.SHOW_ENGLISH and en:
                 text = f"{hu}\n[{en}]"
-            self._labels[idx].configure(
-                text=text,
-                fg=config.FG_NEW if is_newest else config.FG_OLD,
-            )
+            if provisional:
+                colour = getattr(config, "FG_PARTIAL", config.FG_NEW)
+            else:
+                colour = config.FG_NEW if is_newest else config.FG_OLD
+            self._labels[idx].configure(text=text, fg=colour)
             idx += 1
 
     def _add_line(self, hu, en=None):

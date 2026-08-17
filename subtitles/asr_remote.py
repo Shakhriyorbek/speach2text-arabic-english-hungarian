@@ -77,7 +77,7 @@ class RemoteTranscriber:
 
     # -- helpers -----------------------------------------------------------
 
-    def _post(self, audio: np.ndarray) -> str:
+    def _post(self, audio: np.ndarray, is_partial: bool = False) -> str:
         """One HTTP round trip. Raises on any failure."""
         # float32 [-1,1] -> int16 PCM halves the bytes on the wire; 5s of
         # 16 kHz mono is ~160 kB, which is nothing even on mosque wifi.
@@ -102,9 +102,9 @@ class RemoteTranscriber:
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         self.last_language = payload.get("language") or "ar"
-        return self._filter((payload.get("text") or "").strip())
+        return self._filter((payload.get("text") or "").strip(), is_partial)
 
-    def _filter(self, text: str) -> str:
+    def _filter(self, text: str, is_partial: bool = False) -> str:
         """Apply the same hallucination guards the local Transcriber applies.
 
         The server runs Whisper's own confidence guards (no_speech, compression
@@ -117,6 +117,14 @@ class RemoteTranscriber:
             return ""
         if is_hallucination(text):
             return ""
+
+        # Snapshots skip the repeat guard and leave _last_text alone: an
+        # utterance's final text usually equals its last snapshot, and arming
+        # the guard from a snapshot would suppress the line that should be
+        # committed. See the same note in subtitles/asr.py.
+        if is_partial:
+            return text
+
         # An exact repeat of the previous line is a decoding loop, not speech.
         if normalize(text) and normalize(text) == normalize(self._last_text):
             return ""
@@ -147,9 +155,19 @@ class RemoteTranscriber:
     def is_using_fallback(self) -> bool:
         return self._using_fallback
 
-    def transcribe(self, audio: np.ndarray) -> str:
-        """Return English text for ``audio`` (float32 mono @16 kHz), or ""."""
+    def transcribe(self, audio: np.ndarray, is_partial: bool = False) -> str:
+        """Return text for ``audio`` (float32 mono @16 kHz), or "".
+
+        ``is_partial`` marks a snapshot of an utterance still being spoken. Such
+        a call never arms the repeat guard and never triggers fallback
+        bookkeeping — a dropped snapshot costs nothing, so it must not count
+        towards declaring the server dead.
+        """
         if self._using_fallback:
+            # A snapshot is disposable; on the degraded local model it is not
+            # worth the CPU, and re-probing the server is the final's job.
+            if is_partial:
+                return ""
             # Periodically probe whether the server came back, without ever
             # delaying the current utterance: retry only every Nth chunk.
             self._consecutive_failures += 1
@@ -165,14 +183,17 @@ class RemoteTranscriber:
             return self._fallback.transcribe(audio) if self._fallback else ""
 
         try:
-            text = self._post(audio)
+            text = self._post(audio, is_partial)
         except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            if is_partial:
+                return ""        # silently skip; the final will report trouble
             self._note_failure(exc)
             if self._fallback is not None:
                 return self._fallback.transcribe(audio)
             return ""
 
-        self._consecutive_failures = 0
+        if not is_partial:
+            self._consecutive_failures = 0
         return text
 
     def health(self) -> dict | None:

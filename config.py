@@ -133,6 +133,29 @@ PRE_ROLL_MS = 240            # audio kept from BEFORE speech onset, so the first
                              # word is never clipped.
 MIN_UTTERANCE_MS = 400       # discard utterances shorter than this (blips).
 
+# --- streaming partial subtitles ---
+# Without this, nothing appears until the speaker pauses (or MAX_UTTERANCE_S
+# fires), so the FIRST word of an utterance can sit invisible for 5s + ~1.6s of
+# processing. The models are not the bottleneck — the T4 runs ~10x realtime and
+# idles most of the time — the wait is inherent to transcribing only completed
+# utterances.
+#
+# With it on, the in-progress utterance is re-transcribed periodically and shown
+# as a provisional line that is replaced as the speaker continues, then promoted
+# to history when the final result lands. Perceived delay drops to about one
+# PARTIAL_EVERY_MS instead of the full utterance.
+#
+# The cost is real: each refresh re-transcribes the WHOLE utterance so far
+# (Whisper cannot resume), so a 5s utterance refreshed every second processes
+# 1+2+3+4+5 = 15s of audio. That is affordable on a GPU and NOT on a laptop CPU
+# — leave this off when ASR_LOCATION = "cpu".
+STREAMING_PARTIALS = True
+PARTIAL_EVERY_MS = 1000      # minimum gap between refreshes of the same
+                             # utterance. Lower = smoother but more GPU work,
+                             # and a final can queue behind a refresh in flight.
+PARTIAL_MIN_MS = 1200        # don't refresh until this much speech exists;
+                             # below it the text churns more than it informs.
+
 
 # ---------------------------------------------------------------------------
 # Pipeline back-pressure (keeps a weak CPU from falling minutes behind)
@@ -253,6 +276,13 @@ MAX_LINES = 3                # how many recent subtitle lines to keep on screen.
 BG = "black"                 # background colour.
 FG_NEW = "white"             # newest line colour.
 FG_OLD = "#888888"           # older lines colour (dimmed).
+FG_PARTIAL = "#b8c4b8"       # in-progress line, still being spoken. Deliberately
+                             # between FG_NEW and FG_OLD: provisional text
+                             # rewrites itself as more audio arrives (measured:
+                             # four rewordings across one 5s utterance), and
+                             # without a visual cue that churn reads as the
+                             # system malfunctioning rather than as text still
+                             # settling. Set equal to FG_NEW to disable.
 FG_BADGE = "#44aa44"         # mode badge colour (top-right corner).
 
 START_FULLSCREEN = True      # start in fullscreen (F11 toggles at runtime).
