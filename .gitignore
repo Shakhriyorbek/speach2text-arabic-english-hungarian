@@ -6,4 +6,7 @@ __pycache__/
 venv/
 
 # Built/downloaded models (recreated by install.bat — large, not for version control)
-models/en-hu-ct2/
+# en-hu-ct2 is ~77 MB, nllb-600m-ct2 is ~600 MB. Everything under models/ is
+# generated, so ignore the lot and keep the .gitkeep that holds the directory.
+models/*
+!models/.gitkeep
