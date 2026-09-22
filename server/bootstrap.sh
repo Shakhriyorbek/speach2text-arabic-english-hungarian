@@ -122,7 +122,11 @@ mkdir -p "$MODELS_DIR" "$HF_HOME"
 # ("Abu Lu'lu'a" -> "the father of the pearl"). So names.py is not optional
 # here, it just fails quietly when you forget it.
 say "Fetching project files into $WORKDIR"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo '')"
+# Piped from curl there is no script file, so BASH_SOURCE is unset — and
+# `set -u` turns reading it into an error. The :- default is what makes the
+# curl one-liner (the documented way to run this) work at all.
+SELF="${BASH_SOURCE[0]:-}"
+HERE="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd || echo '')"
 
 # Are we inside a git checkout, or piped in from curl? Test for the repo's
 # actual shape rather than for "a path exists": when this is re-run from
@@ -139,7 +143,7 @@ fetch() {   # fetch <repo-path> <dest>
     # incrementally as it runs, so overwriting it mid-flight makes it jump to a
     # random offset of the new file. This happens on the second and every later
     # run, where $WORKDIR/bootstrap.sh IS this process.
-    if [ -e "$dest" ] && [ "$dest" -ef "${BASH_SOURCE[0]}" ]; then
+    if [ -n "$SELF" ] && [ -e "$dest" ] && [ "$dest" -ef "$SELF" ]; then
         echo "  $(basename "$dest") (already running — left alone)"
         return
     fi
@@ -176,9 +180,47 @@ chmod +x "$WORKDIR/start_whisper.sh" "$WORKDIR/bootstrap.sh"
 # --- 2. runtime venv -------------------------------------------------------
 
 say "Runtime environment at $WBENCH"
+
+PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo '?')"
+echo "  python3 is $PYVER"
+case "$PYVER" in
+    3.8|3.7|'?')
+        echo "  NOTE: that is old. faster-whisper and ctranslate2 want 3.9+."
+        echo "        If the install below fails, redeploy this box on a newer"
+        echo "        image (any Ubuntu 22.04 / python3.10+ template)." ;;
+esac
+
 if [ ! -x "$WBENCH/bin/python" ]; then
-    python3 -m venv "$WBENCH"
+    # Plenty of slim base images ship python3 with no ensurepip, so `venv`
+    # creates a directory and then fails. Debian's answer is a separate
+    # python3-venv package. Install it rather than telling the operator to,
+    # because the operator is in a mosque and this script is the whole runbook.
+    if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
+        echo "  python3-venv is missing — installing it"
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq || true
+            apt-get install -y -qq "python${PYVER}-venv" python3-pip \
+                || apt-get install -y -qq python3-venv python3-pip \
+                || true
+        fi
+    fi
+
+    if ! python3 -m venv "$WBENCH" 2>/dev/null; then
+        # Last resort: build the venv without pip, then bootstrap pip into it.
+        echo "  venv still incomplete — falling back to get-pip"
+        rm -rf "$WBENCH"
+        python3 -m venv --without-pip "$WBENCH"
+        curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+        "$WBENCH/bin/python" /tmp/get-pip.py --quiet
+        rm -f /tmp/get-pip.py
+    fi
     "$WBENCH/bin/python" -m pip install --quiet --upgrade pip
+fi
+
+if [ ! -x "$WBENCH/bin/pip" ]; then
+    echo "Could not build a working Python environment at $WBENCH." >&2
+    echo "Redeploy this box on an image with python3.10 or newer." >&2
+    exit 1
 fi
 # Lean by design: faster-whisper + ctranslate2 + the CUDA 12 libs, no torch.
 "$WBENCH/bin/pip" install --quiet -r "$WORKDIR/requirements-server.txt"

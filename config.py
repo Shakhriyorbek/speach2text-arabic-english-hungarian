@@ -140,6 +140,14 @@ RUNPOD_CLOUD_TYPE = "SECURE"
 RUNPOD_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
 RUNPOD_CONTAINER_DISK_GB = 20
 
+# Image for the one-time CPU box that converts the models. Different from the
+# GPU image on purpose: that one is a ~20 GB CUDA build, and this box has no
+# GPU to use it with. What this step actually needs is a MODERN PYTHON —
+# RunPod's default CPU templates can be Ubuntu 20.04 with python3.8, which has
+# no ensurepip (so `venv` half-fails) and no wheels for current ctranslate2.
+# The plain python image is small, has 3.11, venv and curl, and nothing else.
+RUNPOD_BUILD_IMAGE = "python:3.11"
+
 # Hard stop, enforced ON THE POD so it survives this laptop dying. A pod bills
 # whether or not anyone is speaking; a forgotten one is ~$500 a month. The pod
 # terminates itself this many hours after starting, no matter what. Generous on

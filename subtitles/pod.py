@@ -237,7 +237,7 @@ def create_build_pod() -> dict:
         "dataCenterIds": [config.RUNPOD_DATACENTER_ID],
         "networkVolumeId": volume,
         "volumeMountPath": "/workspace",
-        "imageName": getattr(config, "RUNPOD_IMAGE", ""),
+        "imageName": getattr(config, "RUNPOD_BUILD_IMAGE", "python:3.11"),
         "containerDiskInGb": int(getattr(config, "RUNPOD_CONTAINER_DISK_GB", 20)),
     }
     pod = _request("POST", "/pods", body, timeout=60.0)
