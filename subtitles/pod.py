@@ -208,6 +208,44 @@ def running_pods() -> list:
     return [p for p in (got or []) if isinstance(p, dict)]
 
 
+# CPU flavours big enough to convert NLLB, best first. The names encode
+# vCPU and RAM: cpu3g-8-32 is 8 vCPU / 32 GB. The 1.3B conversion needs about
+# 12 GB, the 3.3B about 26 GB, so 32 GB covers both and 16 GB covers the 1.3B.
+BUILD_CPU_FLAVORS = ["cpu3g-8-32", "cpu3g-4-16", "cpu5c-8-16"]
+
+
+def create_build_pod() -> dict:
+    """Rent a CPU box with the volume attached, for the one-time model build.
+
+    Separate from create() and deliberately dumber: no start command, no token,
+    no server. It exists because the settings are what people get wrong — the
+    volume not attached, the wrong datacenter, too little RAM — and each of
+    those is discovered forty minutes into a download.
+
+    No GPU, because the conversion does not use one and a GPU pod usually has
+    LESS RAM than this needs. Costs a few cents.
+    """
+    volume = getattr(config, "RUNPOD_NETWORK_VOLUME_ID", "").strip()
+    if not volume:
+        raise PodError("RUNPOD_NETWORK_VOLUME_ID is not set in config.py.")
+
+    body = {
+        "name": f"khutbah-build-{time.strftime('%Y%m%d-%H%M')}",
+        "computeType": "CPU",
+        "cpuFlavorIds": BUILD_CPU_FLAVORS,
+        "cpuFlavorPriority": "availability",
+        "dataCenterIds": [config.RUNPOD_DATACENTER_ID],
+        "networkVolumeId": volume,
+        "volumeMountPath": "/workspace",
+        "imageName": getattr(config, "RUNPOD_IMAGE", ""),
+        "containerDiskInGb": int(getattr(config, "RUNPOD_CONTAINER_DISK_GB", 20)),
+    }
+    pod = _request("POST", "/pods", body, timeout=60.0)
+    if not isinstance(pod, dict) or not pod.get("id"):
+        raise PodError(f"RunPod accepted the request but returned no pod: {pod!r}")
+    return pod
+
+
 def get(pod_id: str) -> dict | None:
     """Current state of a pod, or None if it no longer exists."""
     try:
@@ -434,7 +472,59 @@ def check() -> int:
     return 0
 
 
+def build_pod_cmd() -> int:
+    """Create the build box and print exactly what to do next."""
+    from subtitles.console import enable_utf8_console
+
+    enable_utf8_console()
+    branch = getattr(config, "RUNPOD_REPO_BRANCH", "main")
+
+    print("Renting a CPU box for the one-time model build...")
+    try:
+        info = create_build_pod()
+    except PodError as exc:
+        print(f"\nFAILED: {exc}")
+        return 1
+
+    pod_id = info["id"]
+    flavor = info.get("cpuFlavorId") or "?"
+    ram = info.get("memoryInGb") or "?"
+    print(f"\n  pod        : {pod_id}")
+    print(f"  machine    : {flavor}, {ram} GB RAM")
+    print(f"  volume     : mounted at /workspace")
+    print(f"  cost       : ${info.get('costPerHr', '?')}/hour")
+    print()
+    print("=" * 70)
+    print("NOW, IN YOUR BROWSER:")
+    print()
+    print(f"  1. Open  https://www.console.runpod.io/pods")
+    print(f"  2. Find  {pod_id}  and open its web terminal")
+    print(f"     (expand the pod -> Connect -> Web Terminal)")
+    print()
+    print("  3. Paste this into that terminal — NOT into this one:")
+    print()
+    print(f"     curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/"
+          f"speach2text-arabic-english-hungarian/{branch}/server/bootstrap.sh"
+          f" | BRANCH={branch} bash -s -- --build-nllb")
+    print()
+    print("  4. Watch it. About 40 minutes, mostly silent during downloads.")
+    print("     When it prints '=== Done ===', come back here.")
+    print()
+    print("  5. TERMINATE the pod — on the site, or run:")
+    print(f"        python -m subtitles.stop_pod")
+    print("=" * 70)
+    print()
+    print("This box is billing from now until you terminate it (a few cents")
+    print("an hour). It has no GPU; that is deliberate — the conversion needs")
+    print("RAM, not a GPU, and a GPU pod usually has less of it.")
+
+    remember(pod_id)
+    return 0
+
+
 if __name__ == "__main__":
     import sys
 
+    if "--build-pod" in sys.argv:
+        sys.exit(build_pod_cmd())
     sys.exit(check())
