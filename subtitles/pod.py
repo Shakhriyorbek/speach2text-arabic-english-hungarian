@@ -208,10 +208,21 @@ def running_pods() -> list:
     return [p for p in (got or []) if isinstance(p, dict)]
 
 
-# CPU flavours big enough to convert NLLB, best first. The names encode
-# vCPU and RAM: cpu3g-8-32 is 8 vCPU / 32 GB. The 1.3B conversion needs about
-# 12 GB, the 3.3B about 26 GB, so 32 GB covers both and 16 GB covers the 1.3B.
-BUILD_CPU_FLAVORS = ["cpu3g-8-32", "cpu3g-4-16", "cpu5c-8-16"]
+# CPU flavour FAMILIES, not sizes. RunPod's API takes the family here and the
+# size separately as vcpuCount; the "cpu3g-8-32" form seen in its docs is the
+# derived name of the result, and sending it is rejected. RAM per vCPU is
+# fixed by the family letter:
+#
+#     c = compute   2 GB per vCPU
+#     g = general   4 GB per vCPU
+#     m = memory    8 GB per vCPU
+#
+# So "cpu3g" with 8 vCPU is 32 GB. That is what we want: converting NLLB-1.3B
+# peaks around 12 GB of RAM and the 3.3B around 26 GB, and being killed for
+# want of memory happens AFTER the download, which is the expensive half hour.
+BUILD_CPU_FLAVORS = ["cpu3g", "cpu5g"]
+BUILD_VCPUS = 8                 # x4 GB on a "g" family = 32 GB
+BUILD_MIN_RAM_GB = 16           # below this, say so rather than waste an hour
 
 
 def create_build_pod() -> dict:
@@ -234,6 +245,7 @@ def create_build_pod() -> dict:
         "computeType": "CPU",
         "cpuFlavorIds": BUILD_CPU_FLAVORS,
         "cpuFlavorPriority": "availability",
+        "vcpuCount": BUILD_VCPUS,
         "dataCenterIds": [config.RUNPOD_DATACENTER_ID],
         "networkVolumeId": volume,
         "volumeMountPath": "/workspace",
@@ -488,9 +500,14 @@ def build_pod_cmd() -> int:
 
     pod_id = info["id"]
     flavor = info.get("cpuFlavorId") or "?"
-    ram = info.get("memoryInGb") or "?"
+    ram = info.get("memoryInGb") or 0
     print(f"\n  pod        : {pod_id}")
-    print(f"  machine    : {flavor}, {ram} GB RAM")
+    print(f"  machine    : {flavor}, {ram or '?'} GB RAM, "
+          f"{info.get('vcpuCount') or '?'} vCPU")
+    if ram and ram < BUILD_MIN_RAM_GB:
+        print(f"\n  WARNING: {ram} GB is below the {BUILD_MIN_RAM_GB} GB the NLLB")
+        print(f"           conversion needs. It would be killed after the")
+        print(f"           download. Terminate this pod and try again.")
     print(f"  volume     : mounted at /workspace")
     print(f"  cost       : ${info.get('costPerHr', '?')}/hour")
     print()
