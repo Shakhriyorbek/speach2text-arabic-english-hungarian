@@ -89,7 +89,30 @@ else
                --format=csv,noheader || true
 fi
 
-mkdir -p "$WORKDIR" "$MODELS_DIR" "$HF_HOME"
+# This script prepares a RENTED BOX. Run on the mosque laptop by mistake — an
+# easy mistake, because the command is copied from a README that the operator
+# is reading on that laptop — it would otherwise emit three mkdir errors and
+# exit on set -e, saying nothing about what actually went wrong.
+if ! mkdir -p "$WORKDIR" 2>/dev/null; then
+    echo >&2
+    echo "Cannot create $WORKDIR." >&2
+    echo >&2
+    if [ "$WORKDIR" = "/workspace" ] && [ ! -d /workspace ]; then
+        echo "There is no /workspace on this machine, which almost always" >&2
+        echo "means this is being run in the WRONG PLACE." >&2
+        echo >&2
+        echo "This script sets up the RENTED GPU BOX, not the laptop. Run it" >&2
+        echo "in the pod's web terminal (RunPod console -> your pod ->" >&2
+        echo "Connect -> Web Terminal), with the network volume attached." >&2
+        echo >&2
+        echo "On the laptop you want install.bat instead." >&2
+    else
+        echo "Check the path exists and that you can write to it, or set" >&2
+        echo "WORKDIR to somewhere you can:  WORKDIR=~/khutbah bash bootstrap.sh" >&2
+    fi
+    exit 1
+fi
+mkdir -p "$MODELS_DIR" "$HF_HOME"
 
 # --- 1. project files, flat ------------------------------------------------
 

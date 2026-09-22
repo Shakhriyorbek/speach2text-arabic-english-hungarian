@@ -135,10 +135,19 @@ model is a 17.6 GB download plus 6.6 GB converted, so the build peaks around
 
 ### 2. Build the models on a CPU pod
 
-Attach the volume to a cheap **CPU** pod at `/workspace`:
+Attach the volume to a cheap **CPU** pod at `/workspace`, then — **in that
+pod's web terminal**, not on the mosque laptop (RunPod console → your pod →
+Connect → Web Terminal):
 
 ```
 curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/speach2text-arabic-english-hungarian/main/server/bootstrap.sh | bash -s -- --build-nllb
+```
+
+If you are testing a branch before merging it, name the branch on both ends or
+the script fetches itself from one place and everything else from `main`:
+
+```
+curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/speach2text-arabic-english-hungarian/<branch>/server/bootstrap.sh | BRANCH=<branch> bash -s -- --build-nllb
 ```
 
 **A CPU pod, not a GPU one**, and this is not an economy: converting NLLB loads
