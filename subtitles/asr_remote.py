@@ -99,6 +99,12 @@ class RemoteTranscriber:
             "X-Mode": self.mode,
             "X-Task": self._task,
         }
+        # Tell the server which of these it is. Snapshots are overwritten a
+        # second later, so the server decodes them at a narrow beam and spends
+        # the GPU on the final, which is what stays on the projector. We have
+        # always known this here; we just never said it.
+        if is_partial:
+            headers["X-Partial"] = "1"
         # Vocabulary hint travels with the request so the wordlist lives in
         # config.py with the rest of the project rather than on the server.
         # base64 because HTTP headers cannot carry raw UTF-8 Arabic.

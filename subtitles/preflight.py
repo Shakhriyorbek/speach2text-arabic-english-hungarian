@@ -128,7 +128,35 @@ def main():
         print("       needs changing in config.py for that to happen.")
         return 1
 
-    print(f"{OK}server is up: {info.get('model')} on {info.get('device')}")
+    print(f"{OK}server is up: {info.get('model')} on {info.get('device')} "
+          f"({info.get('compute_type', '?')})")
+
+    gpu = info.get("gpu")
+    if gpu:
+        print(f"{OK}card: {gpu}, {info.get('vram_gb', '?')} GB")
+    beam = info.get("beam") or {}
+    if beam:
+        print(f"{OK}beam: {beam.get('final')} final / {beam.get('partial')} partial")
+
+    # A pod that stops itself in the middle of the khutbah is a far worse
+    # surprise than one that stops afterwards, so say how long is left while
+    # there is still time to do something about it.
+    deadline = info.get("deadline")
+    if deadline:
+        print(f"{OK}the GPU stops itself at {deadline}")
+
+    # Does what is loaded actually fit the card? float16 large-v3 is ~3.1 GB and
+    # NLLB-1.3B ~2.7 GB (3.3B ~7.6 GB), plus context and activations. Running
+    # out of VRAM does not happen at startup — it happens on an utterance.
+    vram = info.get("vram_gb")
+    if vram and info.get("compute_type") == "float16":
+        need = 12 if "3.3b" in str(info.get("translate_model", "")).lower() else 8
+        if vram < need:
+            warnings.append(
+                f"this card has {vram} GB, and what is loaded wants about "
+                f"{need} GB at float16. It may run out of memory mid-khutbah. "
+                f"Restart the server with WHISPER_COMPUTE_TYPE=int8_float16 "
+                f"and NLLB_COMPUTE_TYPE=int8_float16 to halve that")
 
     if info.get("device") != "cuda":
         warnings.append(
@@ -159,7 +187,9 @@ def main():
     # --- will translation run there too? ---
     if direct and mt_loc == "remote":
         if info.get("translate"):
-            print(f"{OK}translation on the GPU: {info.get('translate_model')}")
+            print(f"{OK}translation on the GPU: {info.get('translate_model')} "
+                  f"({info.get('translate_compute_type', '?')}, "
+                  f"beam {info.get('translate_beam', '?')})")
         else:
             warnings.append(
                 "the server has translation DISABLED, so Hungarian will come "

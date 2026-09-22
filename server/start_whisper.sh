@@ -38,6 +38,17 @@ export NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-}"
 export NLLB_DEVICE="${NLLB_DEVICE:-cuda}"
 export NLLB_COMPUTE_TYPE="${NLLB_COMPUTE_TYPE:-float16}"
 
+# Search width. Four of every five requests are snapshots of speech still in
+# progress, overwritten a second later; only the final reaches the projector.
+# Spend the GPU on that one. Lower BEAM_FINAL if the GPU is small and finals
+# start arriving late.
+export WHISPER_BEAM_FINAL="${WHISPER_BEAM_FINAL:-5}"
+export WHISPER_BEAM_PARTIAL="${WHISPER_BEAM_PARTIAL:-1}"
+export NLLB_BEAM_SIZE="${NLLB_BEAM_SIZE:-4}"
+
+# The server reads $WORKDIR/deadline to report the automatic shutdown time.
+export WORKDIR
+
 # Token: argument beats environment, so a pasted one-liner works.
 if [ "${1:-}" != "" ]; then
     export WHISPER_SERVER_TOKEN="$1"
@@ -148,7 +159,8 @@ fi
 
 echo "workdir     : $WORKDIR"
 echo "whisper     : $WHISPER_MODEL on $WHISPER_DEVICE ($WHISPER_COMPUTE_TYPE)"
-echo "translation : ${NLLB_MODEL_DIR:-disabled}"
+echo "beam        : $WHISPER_BEAM_FINAL final / $WHISPER_BEAM_PARTIAL partial"
+echo "translation : ${NLLB_MODEL_DIR:-disabled}${NLLB_MODEL_DIR:+ (beam $NLLB_BEAM_SIZE)}"
 echo "listening   : $WHISPER_SERVER_HOST:$WHISPER_SERVER_PORT"
 echo "token       : $WHISPER_SERVER_TOKEN"
 if [ -n "${DEADMAN_AT:-}" ]; then

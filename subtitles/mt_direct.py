@@ -82,7 +82,7 @@ class DirectTranslator:
     """
 
     def __init__(self, model_dir: str | None = None, device: str = "cpu",
-                 compute_type: str = "int8"):
+                 compute_type: str = "int8", beam_size: int | None = None):
         d = model_dir or _cfg("NLLB_MODEL_DIR")
         if not os.path.isdir(d):
             raise FileNotFoundError(
@@ -100,7 +100,12 @@ class DirectTranslator:
         self.tr = ctranslate2.Translator(d, device=device, compute_type=compute_type)
         self.tok = Tokenizer.from_file(tok_path)
         self.tgt = _cfg("NLLB_TARGET_LANG")
-        self._beam = _cfg("NLLB_BEAM_SIZE")
+        # An explicit argument rather than another _cfg() key, because on the
+        # GPU box config.py is absent and _cfg falls through to _DEFAULTS — so
+        # the server was quietly pinned to beam 2 with no way to raise it. An
+        # env lookup inside _cfg would have to coerce per key (NLLB_LANG_MAP is
+        # a dict), which is a trap; a parameter is not.
+        self._beam = beam_size if beam_size is not None else _cfg("NLLB_BEAM_SIZE")
         self._cache: dict[tuple[str, str], str] = {}
 
         # Fail loudly at startup rather than producing fluent nonsense later:
