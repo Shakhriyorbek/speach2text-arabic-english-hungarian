@@ -43,6 +43,7 @@ import urllib.request
 import config
 from subtitles import pod
 from subtitles.console import enable_utf8_console
+from subtitles.http_client import USER_AGENT
 
 enable_utf8_console()
 
@@ -68,7 +69,8 @@ class Cancelled(Exception):
 
 
 def _health(url: str, timeout: float = 10.0) -> dict:
-    req = urllib.request.Request(f"{url}/health", method="GET")
+    req = urllib.request.Request(f"{url}/health", method="GET",
+                                 headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
@@ -97,6 +99,7 @@ def _authenticated_round_trip(url: str, token: str, timeout: float = 15.0) -> No
             "Content-Type": "application/octet-stream",
             "X-Mode": "part1",
             "X-Task": "transcribe",
+            "User-Agent": USER_AGENT,
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:

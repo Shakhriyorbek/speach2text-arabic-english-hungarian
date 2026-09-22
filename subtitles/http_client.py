@@ -39,6 +39,20 @@ import socket
 import urllib.error
 import urllib.parse
 
+# Cloudflare sits in front of BOTH rest.runpod.io and *.proxy.runpod.net, and
+# it rejects the default "Python-urllib/3.x" with HTTP 403, Cloudflare error
+# 1010 ("browser signature banned"). Measured: identical requests get 403 with
+# the default agent and reach the server with any other.
+#
+# Every HTTP call this project makes therefore has to identify itself. Without
+# it the GPU path fails on the FIRST request and keeps failing — and because
+# the client is built to fall back rather than error, that looks like "the GPU
+# never works" rather than like a blocked request.
+USER_AGENT = (
+    "khutbah-subtitles/1.0 "
+    "(+https://github.com/Shakhriyorbek/speach2text-arabic-english-hungarian)"
+)
+
 # Failures that mean "this socket was stale", as opposed to "the server is
 # unhappy". Only these are retried, and only once.
 _STALE = (
@@ -91,6 +105,7 @@ class KeepAliveClient:
             if self._conn.sock is not None:
                 self._conn.sock.settimeout(timeout)
 
+        headers = {"User-Agent": USER_AGENT, **headers}
         self._conn.request(method, f"{self._prefix}{path}", body=body, headers=headers)
         resp = self._conn.getresponse()
         # ALWAYS read the body, including on an error status. An unread body

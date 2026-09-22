@@ -123,8 +123,21 @@ def synth_speechlike_pcm(seconds=3.0):
     return pcm.tobytes(), seconds
 
 
+# Its own copy rather than an import: this file is deliberately stdlib-only and
+# is deployed flat onto the pod, where subtitles/ does not exist. Keep it in
+# step with subtitles/http_client.py.
+#
+# RunPod's proxy is behind Cloudflare, which 403s the default "Python-urllib"
+# agent (error 1010). Every request has to identify itself or nothing works.
+USER_AGENT = (
+    "khutbah-subtitles/1.0 "
+    "(+https://github.com/Shakhriyorbek/speach2text-arabic-english-hungarian)"
+)
+
+
 def request(url, token, path, data=None, headers=None, timeout=60):
     hdrs = {"Authorization": f"Bearer {token}"} if token else {}
+    hdrs["User-Agent"] = USER_AGENT
     hdrs.update(headers or {})
     req = urllib.request.Request(
         f"{url}{path}",

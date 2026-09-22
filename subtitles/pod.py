@@ -30,6 +30,7 @@ import urllib.error
 import urllib.request
 
 import config
+from subtitles.http_client import USER_AGENT
 
 API_ROOT = "https://rest.runpod.io/v1"
 
@@ -83,6 +84,8 @@ def _request(method: str, path: str, body: dict | None = None, timeout: float = 
             "Authorization": f"Bearer {api_key()}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            # Without this Cloudflare answers 403 before RunPod sees us.
+            "User-Agent": USER_AGENT,
         },
     )
     try:
