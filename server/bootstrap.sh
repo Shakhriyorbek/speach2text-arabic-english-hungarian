@@ -177,6 +177,14 @@ fetch server/requirements-server.txt      "$WORKDIR/requirements-server.txt"
 fetch server/requirements-server-build.txt "$WORKDIR/requirements-server-build.txt"
 chmod +x "$WORKDIR/start_whisper.sh" "$WORKDIR/bootstrap.sh"
 
+# Which version of this script is actually running? GitHub serves raw files
+# through a CDN that can stay stale for minutes after a push, so "I fixed that"
+# and "you ran the fix" are different claims. Print a fingerprint of the copy
+# just fetched, so a pasted log says unambiguously which code produced it.
+if command -v sha256sum >/dev/null 2>&1; then
+    echo "  (bootstrap $(sha256sum "$WORKDIR/bootstrap.sh" | cut -c1-8), branch $BRANCH)"
+fi
+
 # --- 2. runtime venv -------------------------------------------------------
 
 say "Runtime environment at $WBENCH"
