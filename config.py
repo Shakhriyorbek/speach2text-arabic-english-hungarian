@@ -177,6 +177,14 @@ POD_BOOT_TIMEOUT_S = 480
 # case set it to that branch on BOTH the build pod and here. Getting it wrong
 # is not fatal: bootstrap.sh keeps the copies already on the volume when a
 # download fails, and says so. But it is noisy and it hides real problems.
+#
+# It may also be a full COMMIT SHA, and during active development it should be.
+# raw.githubusercontent.com serves branch paths through a CDN that stays stale
+# for minutes after a push — measured: a branch URL returned the previous
+# version for over 100 seconds while the commit was already on the remote, and
+# neither a ?cachebust query nor github.com/.../raw/... avoided it. A commit
+# path is immutable, so it is never cached wrong. Pin the SHA while iterating;
+# use "main" once it is merged and settled.
 RUNPOD_REPO_BRANCH = "gpu-one-click"   # testing before merge; set back to "main"
 
 # Port the server listens on, exposed through RunPod's HTTPS proxy as

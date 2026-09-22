@@ -143,12 +143,24 @@ Connect → Web Terminal):
 curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/speach2text-arabic-english-hungarian/main/server/bootstrap.sh | bash -s -- --build-nllb
 ```
 
-If you are testing a branch before merging it, name the branch on both ends or
-the script fetches itself from one place and everything else from `main`:
+If you are testing a change before merging it, **pin a commit SHA** rather than
+naming a branch — the same value on both ends, or the script fetches itself
+from one place and everything else from `main`:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/speach2text-arabic-english-hungarian/<branch>/server/bootstrap.sh | BRANCH=<branch> bash -s -- --build-nllb
+curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/speach2text-arabic-english-hungarian/<sha>/server/bootstrap.sh | BRANCH=<sha> bash -s -- --build-nllb
 ```
+
+A SHA rather than a branch name because `raw.githubusercontent.com` serves
+branch paths through a CDN that stays stale for minutes after a push: measured,
+a branch URL kept returning the previous version for over 100 seconds after the
+commit was on the remote, and neither a cache-busting query string nor the
+`github.com/.../raw/...` form avoided it. Debugging a fix you are not actually
+running is an expensive way to spend a morning. Commit paths are immutable and
+never served stale.
+
+The script prints the fingerprint of the copy it fetched — `(bootstrap 1a2b3c4d,
+branch ...)` — so a pasted log says which code produced it.
 
 **A CPU pod, not a GPU one**, and this is not an economy: converting NLLB loads
 the whole checkpoint into CPU RAM as float32 — about 26 GB for the 3.3B — while
