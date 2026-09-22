@@ -479,8 +479,13 @@ def check() -> int:
         return 1
     print("Settings look right. Nothing has been rented and nothing charged.")
     print()
-    print("Next: build the models onto the volume once, on a CPU pod —")
-    print("see server/README.md. After that, START.bat is the whole procedure.")
+    # What is actually ON the volume cannot be seen from here — reading it
+    # needs a pod attached to it — so offer both next steps rather than
+    # asserting which one applies.
+    print("If the models are not on the volume yet, build them once on a CPU")
+    print("pod:  python -m subtitles.pod --build-pod  (see server/README.md).")
+    print("If they are, rehearse the whole GPU cycle:")
+    print("      python -m subtitles.launcher --selftest")
     return 0
 
 
