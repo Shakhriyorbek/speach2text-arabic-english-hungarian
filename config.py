@@ -140,13 +140,20 @@ RUNPOD_CLOUD_TYPE = "SECURE"
 RUNPOD_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
 RUNPOD_CONTAINER_DISK_GB = 20
 
-# Image for the one-time CPU box that converts the models. Different from the
-# GPU image on purpose: that one is a ~20 GB CUDA build, and this box has no
-# GPU to use it with. What this step actually needs is a MODERN PYTHON —
-# RunPod's default CPU templates can be Ubuntu 20.04 with python3.8, which has
-# no ensurepip (so `venv` half-fails) and no wheels for current ctranslate2.
-# The plain python image is small, has 3.11, venv and curl, and nothing else.
-RUNPOD_BUILD_IMAGE = "python:3.11"
+# Image for the one-time CPU box that converts the models. Three requirements,
+# and it took two failed attempts to learn the third:
+#
+#   1. A MODERN PYTHON. RunPod's default CPU templates can be Ubuntu 20.04
+#      with python3.8, which has no ensurepip (so `venv` half-fails) and no
+#      wheels for current ctranslate2. Ubuntu 24.04 gives 3.12.
+#   2. SMALL. This box has no GPU, so the ~20 GB CUDA image below is pure
+#      waiting. This one is 0.7 GB.
+#   3. RUNPOD'S OWN BASE. A plain "python:3.11" from Docker Hub has none of
+#      RunPod's tooling, so "Connect -> Web Terminal" is never offered — and
+#      its default command is the Python REPL, which exits immediately without
+#      a TTY and can take the container down with it. You need the terminal:
+#      this build is forty minutes long and you want to see it fail.
+RUNPOD_BUILD_IMAGE = "runpod/base:1.3.1-ubuntu2404"
 
 # Hard stop, enforced ON THE POD so it survives this laptop dying. A pod bills
 # whether or not anyone is speaking; a forgotten one is ~$500 a month. The pod
