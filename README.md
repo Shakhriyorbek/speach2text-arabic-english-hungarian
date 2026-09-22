@@ -83,6 +83,28 @@ MIC_DEVICE = 3   # the index shown for your microphone
 
 ---
 
+## GPU mode (optional) — much better Arabic, and better Hungarian
+
+The offline mode is free and private, but a weak laptop's CPU caps how good the
+**Arabic** can get. Renting a GPU by the hour lifts both ends of the pipeline:
+Whisper `large-v3` instead of `small`, and NLLB-1.3B instead of the 600M model
+that was measured turning *"we seek His forgiveness"* into *"we forgive Him"*.
+
+It is cheaper than it sounds — roughly **$6 a month** for a weekly khutbah,
+because you only pay for the hours the GPU is actually running. Any provider
+works; **`server/README.md` has the full runbook**, written against RunPod.
+
+The short version: build the models onto a persistent volume the night before,
+start a pod on the morning, put its URL in `pod_url.txt`, and double-click
+`check_gpu.bat` to confirm before you begin. If the server is unreachable at any
+point the laptop transparently falls back to its own models, so a network
+failure costs quality rather than the whole screen.
+
+Set `ASR_LOCATION = "cpu"` and `MT_LOCATION = "cpu"` in `config.py` to go back
+to fully offline.
+
+---
+
 ## Cloud mode (optional) — much better Arabic
 
 The offline mode is free and private, but a weak laptop's CPU caps how good the
@@ -179,11 +201,21 @@ especially valued.
 | File | Role |
 |------|------|
 | `audio.py` | microphone capture + voice-activity chunking |
-| `asr.py` | faster-whisper: speech → English (`task="translate"`) |
-| `mt.py` | CTranslate2: English → Hungarian |
+| `asr.py` | faster-whisper on this laptop: speech → text |
+| `asr_remote.py` | the same, on a GPU box; falls back to `asr.py` on trouble |
+| `mt.py` | CTranslate2: English → Hungarian (the pivot path) |
+| `mt_direct.py` | NLLB: Arabic → Hungarian with no English in between |
+| `mt_remote.py` | the same, on a GPU box; falls back to `mt_direct.py` |
+| `names.py` | proper names, substituted before the model sees them |
+| `preflight.py` | "is the GPU ready?" — run by `check_gpu.bat` |
+| `test_pipeline.py` | run a WAV through the real pipeline, no mic needed |
 | `ui.py` | fullscreen Tkinter subtitle window |
 | `app.py` | wires the threads/queues together |
 | `config.py` | every tunable, in one place — start here |
+
+The GPU server lives in `server/` and is documented separately in
+`server/README.md`. Note that `mt_direct.py` and `names.py` are deployed *flat*
+onto that box, which is why they tolerate `config.py` being absent.
 
 **Dev setup:** run `install.bat` once (see [setup](#one-time-setup-needs-internet-do-this-once-at-home)), then hack away.
 

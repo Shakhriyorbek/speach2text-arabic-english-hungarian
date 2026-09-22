@@ -1,0 +1,14 @@
+# What the GPU box needs to RUN the server (server/whisper_server.py).
+# Installed into the persistent venv by bootstrap.sh. Deliberately lean: no
+# torch, no transformers, no web framework — see the module docstring in
+# whisper_server.py for why it is stdlib http.server.
+faster-whisper>=1.0.0
+ctranslate2>=4.0
+tokenizers
+
+# ctranslate2 loads the CUDA 12 libraries at runtime rather than linking them,
+# so they must be present AND on LD_LIBRARY_PATH. start_whisper.sh sets that
+# path; without it you get an opaque "libcublas.so.12: cannot open shared
+# object file" the moment the first utterance arrives, not at startup.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

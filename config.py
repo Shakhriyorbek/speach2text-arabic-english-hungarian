@@ -6,6 +6,8 @@ no one has to touch the code. The most important knobs are the two model
 sizes below: they trade accuracy against delay.
 """
 
+import os
+
 # ---------------------------------------------------------------------------
 # Which engine to use
 # ---------------------------------------------------------------------------
@@ -29,13 +31,27 @@ BACKEND = "local"
 ASR_LOCATION = "remote"
 
 # --- remote ASR settings (ignored when ASR_LOCATION = "cpu") ---
-# Where the GPU box is reachable, no trailing slash. Two ways to point at it:
-#   via SSH tunnel (recommended — nothing exposed to the internet):
-#       ssh -i <key> -N -L 8756:127.0.0.1:8756 hpcadmin@<vm-ip>
-#       then use  http://127.0.0.1:8756  below
-#   direct: use  http://<vm-ip>:8756  and open 8756 in the Azure NSG to your
-#       IP only. Never leave it open to the whole internet.
-REMOTE_ASR_URL = "http://127.0.0.1:8756"
+# Where the GPU box is reachable, no trailing slash.
+#
+# This value normally does NOT live here. A rented pod gets a new ID every time
+# it is created, so the URL changes week to week — put it on a single line in
+# pod_url.txt next to run.bat, which run.bat and check_gpu.bat pass in through
+# WHISPER_SERVER_URL. An operator editing a one-line text file on a Friday
+# morning is a far safer thing than an operator editing Python. The literal
+# below is only the fallback for when pod_url.txt is missing.
+#
+#   HTTP proxy (what we use):  https://<POD_ID>-8756.proxy.runpod.net
+#       HTTPS for free, no inbound port to open, no SSH tunnel to drop. But the
+#       URL is public and guessable, so WHISPER_SERVER_TOKEN is now the ONLY
+#       thing between the server and anyone scanning — behind the old Azure NSG
+#       it was the second layer. Generate a fresh token per pod.
+#   Direct TCP (fallback):     http://<ip>:<mapped-port>
+#       Use this if the proxy turns out to strip the X-Mode / X-Task headers;
+#       server/smoke_test.py checks for exactly that. Expose 8756 as a TCP port
+#       and read the mapping from the pod's Connect -> Direct TCP Ports panel.
+_SERVER_URL = os.environ.get("WHISPER_SERVER_URL", "").strip().rstrip("/")
+
+REMOTE_ASR_URL = _SERVER_URL or "https://YOUR-POD-ID-8756.proxy.runpod.net"
 REMOTE_ASR_TIMEOUT = 10.0                   # seconds; must be well under the
                                             # time the congregation would notice
                                             # a stall. On timeout we fall back.
@@ -218,7 +234,7 @@ NLLB_LANG_MAP = {"ar": "arb_Arab", "en": "eng_Latn"}
 #              so an outage costs accuracy rather than the whole screen.
 MT_LOCATION = "remote"
 
-REMOTE_MT_URL = "http://127.0.0.1:8756"     # same server/tunnel as remote ASR
+REMOTE_MT_URL = _SERVER_URL or REMOTE_ASR_URL   # the same box serves both
 REMOTE_MT_TIMEOUT = 8.0                     # a line is ~0.2s on a T4; this is
                                             # a stall guard, not a target
 REMOTE_MT_FAILURES_BEFORE_FALLBACK = 2

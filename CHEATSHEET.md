@@ -43,13 +43,17 @@ The **top-right corner** shows the current mode: `1: ARAB` or `2: AUTO`.
 | **Text too small on the projector** | Press **`+`** a few times. |
 | **Nothing shows on the projector** | `⊞ Windows` + `P` → **Duplicate**. Move the window with the mouse if needed. |
 | **It froze / acting weird** | Press **Esc**, then double-click `run.bat` again. |
+| **GPU mode: subtitles are suddenly worse** | The GPU server dropped out and the laptop took over — this is the designed fallback, not a fault. Carry on. Afterwards, check the pod is still running and re-run **`check_gpu.bat`**. |
 | **Cloud mode: "⚠ Felhő hiba" on screen** | Internet is down or the Azure key/quota has a problem. Check the console window. **Quick fallback:** set `BACKEND = "local"` in `config.py`, restart — works offline. |
 
 ---
 
 ## ℹ️ Good to know
 
-- **Runs fully offline** — no internet needed during the khutbah.
+- **Runs fully offline** — no internet needed during the khutbah. *(Unless GPU
+  mode is set up: then it uses the internet when it can, and falls back to
+  offline by itself when it can't. Run **`check_gpu.bat`** beforehand to see
+  which one you are getting.)*
 - The subtitles are a **live aid to understanding**, not an official translation. **Quran translations shown are approximate**, not authoritative.
 - First-time setup on a new laptop: run **`install.bat`** once (needs internet). After that, only `run.bat` is needed.
 

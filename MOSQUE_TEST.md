@@ -12,13 +12,27 @@ wrong on the day.
 1. **Charge the laptop** and bring the charger. Transcription keeps the CPU busy.
 2. **Bring the microphone you will actually use**, and its cable/adapter.
 3. **Test once at home** exactly as below. If it works at home it will work there.
-4. Confirm `config.py` is on the safe defaults (this is how it ships):
+4. **Decide which mode you are demonstrating, and check `config.py` matches.**
+
+   The repository ships configured for the **GPU**, not for offline — so if you
+   want the safe offline demonstration you have to say so explicitly:
+
    ```python
    BACKEND          = "local"
-   ASR_LOCATION     = "cpu"
+   ASR_LOCATION     = "cpu"      # ships as "remote"
+   MT_LOCATION      = "cpu"      # ships as "remote"
+   STREAMING_PARTIALS = False    # ships as True; too slow for a laptop CPU
    MODEL_SIZE_PART1 = "small"
-   MIC_DEVICE       = None
    ```
+
+   For the **GPU** demonstration, leave all of those as they ship and follow the
+   GPU section at the bottom of this page instead.
+
+   Either way, check `MIC_DEVICE`. It ships as `1`, which is the built-in mic on
+   the development laptop and almost certainly the wrong number on yours. Run
+   `venv\Scripts\python -m sounddevice` to list devices and set the index you
+   actually want — it is pinned deliberately rather than left as `None` so that
+   a Bluetooth headset connecting mid-sermon cannot silently take over the input.
 
 ---
 
@@ -102,31 +116,50 @@ debug in front of an audience — note what happened and look at it afterwards.
 
 Noticeably better Arabic — on the same recording it caught proper names and kept
 a negation that the offline model reversed. But it needs **reliable internet at
-the mosque** plus four things prepared in advance, so do not attempt it live
-unless you have rehearsed it end to end.
+the mosque** plus a rented GPU, so do not attempt it live unless you have
+rehearsed it end to end.
 
-1. **Start the VM** and wait ~2 minutes:
+**Prepare the night before, not on the day.** Build the models onto a RunPod
+network volume, then terminate the pod; the volume costs about $0.12 a night and
+turns the morning's setup from forty minutes into three. Full instructions in
+`server/README.md`.
+
+### On the morning
+
+1. **Create a pod** in the same datacenter as your volume, attach the volume at
+   `/workspace`, and expose port **8756** as an **HTTP port**.
+2. **Set it up and start it** in the pod's web terminal:
    ```
-   az vm start -g GLOSTER-GPT-HPC-PLAYGROUND-ENV-SHAKH -n ggpt-hpc-shakh-vm
+   bash /workspace/bootstrap.sh              # a no-op on a prepared volume
+   tmux new -s whisper
+   bash /workspace/start_whisper.sh <your-token>
    ```
-2. **Check the GPU is alive** — this breaks after kernel upgrades:
+   Use `tmux` — a pod has no systemd, so closing the terminal tab kills the
+   server. Detach with `ctrl-b` then `d`.
+3. **Point the laptop at it.** Put the pod's URL on one line in `pod_url.txt`
+   next to `run.bat`:
    ```
-   ssh -i ~/.ssh/hpc-playground-shakh hpcadmin@<vm-ip> nvidia-smi
+   https://<POD_ID>-8756.proxy.runpod.net
    ```
-   No Tesla T4 in the output? See `server/README.md` for the driver fix.
-3. **Start the server** (token must match the laptop's):
+   The token goes in the environment once, not in a file:
+   `setx WHISPER_SERVER_TOKEN "<the token>"`, then reopen the terminal.
+4. **Check it before anyone arrives.** Double-click **`check_gpu.bat`**. It says
+   in plain words whether Friday will run on the GPU. Expect:
    ```
-   ./start_whisper.sh <your-token>
+   OK   server is up: large-v3 on cuda
+   OK   the token is accepted
+   OK   translation on the GPU: nllb-1.3b-ct2
+   READY.
    ```
-4. **On the laptop**, set `ASR_LOCATION = "remote"` and `REMOTE_ASR_URL` to the
-   VM, with `WHISPER_SERVER_TOKEN` in the environment. Then `run.bat` as usual.
+   Anything else is explained on screen. Do this **before** the congregation
+   arrives — once `run.bat` is fullscreen you cannot see the console.
+5. Then `run.bat` as usual. F1/F2 work exactly the same.
 
 If the server is unreachable the program says so and **automatically uses the
-offline model instead** — F1/F2 keep working, so a network failure degrades
-quality rather than stopping the demonstration.
+offline models instead** — F1/F2 keep working, so a network failure degrades
+quality rather than stopping the demonstration. Worth seeing that happen once,
+deliberately, before you rely on it.
 
-**Afterwards, deallocate the VM or it keeps charging (~$0.50/hour):**
-```
-az vm deallocate -g GLOSTER-GPT-HPC-PLAYGROUND-ENV-SHAKH -n ggpt-hpc-shakh-vm
-```
-"Stopped" is not enough in the Azure portal — it must say **Deallocated**.
+**Afterwards, terminate the pod** or it keeps billing (~$0.17/hour). On RunPod,
+*stopping* a pod still charges for its disk — terminate it and keep only the
+network volume.
