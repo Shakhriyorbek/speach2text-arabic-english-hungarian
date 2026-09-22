@@ -101,9 +101,19 @@ REMOTE_ASR_RETRY_EVERY = 20                 # while fallen back, re-probe the
 RUNPOD_NETWORK_VOLUME_ID = ""
 
 # The datacenter the volume lives in. A network volume CANNOT move, so the pod
-# has to be created here. Prefer one near the mosque: with STREAMING_PARTIALS on
-# the laptop talks to the pod about twice a second, so round-trip time is felt.
-RUNPOD_DATACENTER_ID = ""                   # e.g. "EU-RO-1"
+# has to be created here — this is the one setting you cannot change later
+# without rebuilding everything. Prefer one near the mosque: with
+# STREAMING_PARTIALS on the laptop talks to the pod about twice a second, so
+# round-trip time is felt directly as delay before the words appear.
+#
+# RunPod's European datacenters, nearest Hungary first:
+#     EU-CZ-1   Czechia        EU-RO-1   Romania
+#     EU-NL-1   Netherlands    EU-FR-1   France
+#     EU-SE-1   Sweden
+# Before committing, check on the RunPod site that the one you pick actually
+# has more than one of RUNPOD_GPU_TYPES in stock. A datacenter with only 4090s
+# is a datacenter that strands you the week 4090s are busy.
+RUNPOD_DATACENTER_ID = ""                   # e.g. "EU-CZ-1"
 
 # Cards we are willing to rent, best first. This is a LIST, not a choice, and
 # that matters: if the datacenter is out of 4090s at 11am on a Friday we cannot
