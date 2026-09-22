@@ -23,10 +23,21 @@ tools only; the server itself never imports them.
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 
 DEFAULT_MODEL = "facebook/nllb-200-distilled-1.3B"
+
+# Download size per checkpoint, so the operator knows whether a quiet ten
+# minutes is normal. 3.3B is three fp32 shards and no safetensors, and at 17.6
+# GB a progress bar that looks stuck for a long time is the expected experience
+# rather than a fault.
+DOWNLOAD_SIZE = {
+    "facebook/nllb-200-distilled-600M": "~2.5 GB",
+    "facebook/nllb-200-distilled-1.3B": "~5.5 GB",
+    "facebook/nllb-200-3.3B": "~17.6 GB, in three parts",
+}
 
 # mt_direct.py loads tokenizer.json at startup and refuses to run without it
 # (it raises rather than guessing, because a missing tokenizer does not fail
@@ -105,6 +116,46 @@ def verify(out_dir, quantization):
     print("      If that Hungarian is sane, the model is good.")
 
 
+def drop_raw_download(model):
+    """Delete the original checkpoint now that we have the converted one.
+
+    HF_HOME points at the paid network volume (bootstrap.sh sets it there so
+    Whisper's cache survives the pod). That is right for Whisper and wrong for
+    this: the raw NLLB checkpoint is 5.5 GB for the 1.3B and 17.6 GB for the
+    3.3B, it is never read again after conversion, and left behind it is what
+    forces the volume to be sized two or three times larger than it needs to be
+    — the volume being the larger half of the monthly bill.
+
+    Only ever this one model's directory. Never HF_HOME itself: large-v3 lives
+    there too, and re-downloading 3 GB of it on a Friday morning is exactly the
+    disaster HF_HOME was pointed at the volume to prevent.
+    """
+    hf_home = os.environ.get("HF_HOME", "").strip()
+    if not hf_home:
+        return
+    # "facebook/nllb-200-3.3B" -> "models--facebook--nllb-200-3.3B"
+    cached = os.path.join(hf_home, "hub", "models--" + model.replace("/", "--"))
+    if not os.path.isdir(cached):
+        return
+    try:
+        freed = sum(
+            os.path.getsize(os.path.join(root, f))
+            for root, _, files in os.walk(cached)
+            for f in files
+            if not os.path.islink(os.path.join(root, f))
+        )
+    except OSError:
+        freed = 0
+    try:
+        shutil.rmtree(cached)
+    except OSError as exc:
+        print(f"      (could not remove {cached}: {exc} — harmless, but it is "
+              f"using disk you are paying for)")
+        return
+    print(f"      removed the raw download, freeing {freed / 2**30:.1f} GB "
+          f"(--keep-download to keep it; --force later re-downloads it)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Build an NLLB CTranslate2 model.")
     ap.add_argument("--model", default=DEFAULT_MODEL)
@@ -114,6 +165,9 @@ def main():
                     help="float16 for a GPU (default), int8 for CPU")
     ap.add_argument("--force", action="store_true",
                     help="rebuild even if the model is already there")
+    ap.add_argument("--keep-download", action="store_true",
+                    help="keep the raw Hugging Face checkpoint after "
+                         "converting it (default: delete, to save volume)")
     args = ap.parse_args()
 
     if already_built(args.out) and not args.force:
@@ -122,9 +176,12 @@ def main():
         return
 
     print(f"      converting {args.model} -> {args.out} ({args.quantization})")
-    print(f"      the 1.3B is a ~5.5 GB download; be patient.")
+    size = DOWNLOAD_SIZE.get(args.model, "possibly several GB")
+    print(f"      {args.model} is {size}; be patient.")
     convert(args.model, args.out, args.quantization)
     verify(args.out, args.quantization)
+    if not args.keep_download:
+        drop_raw_download(args.model)
 
 
 if __name__ == "__main__":

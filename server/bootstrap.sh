@@ -13,6 +13,14 @@
 #
 #  Or from a checkout:  bash server/bootstrap.sh --build-nllb
 #
+#  Flags:
+#    --build-nllb   also build the translation model (NLLB-1.3B by default)
+#    --nllb-3.3b    build the larger NLLB-3.3B instead. Needs ~28 GB of RAM to
+#                   convert and ~17.6 GB of download, so do it once on a CPU
+#                   pod attached to the volume. Measure with compare_mt.py
+#                   before adopting it.
+#    --no-nllb      skip translation entirely; the laptop will do it
+#
 #  IDEMPOTENT ON PURPOSE. Running it against a box that already has everything
 #  must be a fast no-op, because that is exactly what happens on the morning of
 #  a khutbah when a fresh pod is attached to an already-built volume.
@@ -44,6 +52,15 @@ for arg in "$@"; do
     case "$arg" in
         --build-nllb) BUILD_NLLB=1 ;;
         --no-nllb)    BUILD_NLLB=0 ;;
+        # The bigger translation model. Worth it only if the A/B in
+        # server/compare_mt.py says so for your speaker — names.py records that
+        # 3.3B was already the WORST of the three on proper names, so this is
+        # not a free upgrade. See server/README.md.
+        --nllb-3.3b)
+            BUILD_NLLB=1
+            NLLB_MODEL="facebook/nllb-200-3.3B"
+            NLLB_DIR="${MODELS_DIR}/nllb-3.3b-ct2"
+            ;;
         -h|--help)
             # Print the header comment block, however long it grows.
             awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"
@@ -127,6 +144,7 @@ fetch subtitles/mt_direct.py              "$WORKDIR/mt_direct.py"
 fetch subtitles/names.py                  "$WORKDIR/names.py"
 fetch server/build_nllb.py                "$WORKDIR/build_nllb.py"
 fetch server/smoke_test.py                "$WORKDIR/smoke_test.py"
+fetch server/compare_mt.py                "$WORKDIR/compare_mt.py"
 fetch server/start_whisper.sh             "$WORKDIR/start_whisper.sh"
 fetch server/requirements-server.txt      "$WORKDIR/requirements-server.txt"
 fetch server/requirements-server-build.txt "$WORKDIR/requirements-server-build.txt"
@@ -168,6 +186,34 @@ if [ "$BUILD_NLLB" = "1" ]; then
     if [ -f "$NLLB_DIR/model.bin" ]; then
         echo "  already built at $NLLB_DIR — skipping."
     else
+        # The converter loads the whole checkpoint into CPU RAM in float32
+        # before writing anything: ~26 GB peak for the 3.3B. A GPU pod
+        # typically has 24-32 GB, so this is a real coin toss — and it is lost
+        # roughly forty minutes in, after the download, with nothing to show
+        # for it. Say so BEFORE that happens.
+        #
+        # This step needs no GPU at all (bootstrap.sh tolerates a GPU-less box,
+        # and build_nllb.py falls back to cpu/int8 for its verify), so the right
+        # answer is usually to do it once on a cheap high-RAM CPU pod attached
+        # to the same volume, and never again.
+        _ram_gb=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
+        case "$NLLB_MODEL" in
+            *3.3B*) _ram_need=28 ;;
+            *1.3B*) _ram_need=12 ;;
+            *)      _ram_need=8  ;;
+        esac
+        if [ "$_ram_gb" -gt 0 ] && [ "$_ram_gb" -lt "$_ram_need" ]; then
+            echo
+            echo "  WARNING: this box has ${_ram_gb} GB of RAM and converting"
+            echo "           $NLLB_MODEL needs about ${_ram_need} GB."
+            echo "           The converter will most likely be killed AFTER the"
+            echo "           download finishes. Run this step on a CPU pod with"
+            echo "           more RAM, attached to the same volume — it needs no"
+            echo "           GPU, and the result is kept on the volume."
+            echo
+            sleep 5
+        fi
+
         # The conversion needs torch + transformers, which together are larger
         # than everything the server runs. Install them into the SYSTEM python,
         # not $WBENCH: the container layer is discarded when the pod is
