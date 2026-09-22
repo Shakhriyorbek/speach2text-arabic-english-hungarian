@@ -176,6 +176,11 @@ def create(token: str) -> dict:
             "WHISPER_SERVER_TOKEN": token,
             "WHISPER_SERVER_PORT": str(port),
             "DEADLINE_HOURS": str(getattr(config, "RUNPOD_DEADLINE_HOURS", 6)),
+            # bootstrap.sh re-fetches the server files on every start and
+            # defaults to main. Say which branch explicitly so a pod created
+            # while testing a branch does not silently fall back to whatever
+            # copies happen to be on the volume.
+            "BRANCH": getattr(config, "RUNPOD_REPO_BRANCH", "main"),
         },
     }
 
@@ -333,6 +338,7 @@ def check() -> int:
     print(f"  datacenter : {getattr(config, 'RUNPOD_DATACENTER_ID', '') or '(not set)'}")
     print(f"  cards      : {', '.join(getattr(config, 'RUNPOD_GPU_TYPES', [])) or '(none)'}")
     print(f"  cloud      : {getattr(config, 'RUNPOD_CLOUD_TYPE', '')}")
+    print(f"  branch     : {getattr(config, 'RUNPOD_REPO_BRANCH', 'main')}")
     print("=" * 62)
     print()
 
@@ -384,6 +390,21 @@ def check() -> int:
     if size and size < 20:
         print(f"{WARN}{size} GB is tight — the one-time model build peaks at "
               f"about 14 GB for NLLB-1.3B. Volumes can be grown, not shrunk.")
+
+    # A branch that does not exist means the pod quietly serves whatever stale
+    # copies are on the volume, which is the hardest kind of problem to notice.
+    branch = getattr(config, "RUNPOD_REPO_BRANCH", "main")
+    raw = (f"https://raw.githubusercontent.com/Shakhriyorbek/"
+           f"speach2text-arabic-english-hungarian/{branch}/server/bootstrap.sh")
+    try:
+        req = urllib.request.Request(raw, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=20):
+            print(f"{OK}branch {branch!r} has the server files on GitHub")
+    except Exception:
+        print(f"{BAD}branch {branch!r} has no server/bootstrap.sh on GitHub.")
+        print("       The pod would fall back to whatever is already on the")
+        print("       volume. Push the branch, or set RUNPOD_REPO_BRANCH.")
+        problems.append("branch not published")
 
     if not getattr(config, "RUNPOD_GPU_TYPES", []):
         print(f"{BAD}RUNPOD_GPU_TYPES is empty — nothing to rent.")

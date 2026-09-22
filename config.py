@@ -154,6 +154,16 @@ RUNPOD_DEADLINE_HOURS = 6
 # min to load large-v3 and NLLB off the network volume.
 POD_BOOT_TIMEOUT_S = 480
 
+# Which branch of the project the pod pulls its server files from. bootstrap.sh
+# runs on every pod start (it is a fast no-op on a prepared volume), and it
+# fetches from GitHub — so this has to name a branch that actually has them.
+#
+# Leave it at "main" unless you are testing a change before merging, in which
+# case set it to that branch on BOTH the build pod and here. Getting it wrong
+# is not fatal: bootstrap.sh keeps the copies already on the volume when a
+# download fails, and says so. But it is noisy and it hides real problems.
+RUNPOD_REPO_BRANCH = "gpu-one-click"   # testing before merge; set back to "main"
+
 # Port the server listens on, exposed through RunPod's HTTPS proxy as
 # https://<POD_ID>-<port>.proxy.runpod.net — no firewall, no SSH tunnel.
 RUNPOD_SERVER_PORT = 8756
