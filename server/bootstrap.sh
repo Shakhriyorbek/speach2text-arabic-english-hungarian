@@ -190,11 +190,29 @@ case "$PYVER" in
         echo "        image (any Ubuntu 22.04 / python3.10+ template)." ;;
 esac
 
-if [ ! -x "$WBENCH/bin/python" ]; then
-    # Plenty of slim base images ship python3 with no ensurepip, so `venv`
-    # creates a directory and then fails. Debian's answer is a separate
-    # python3-venv package. Install it rather than telling the operator to,
-    # because the operator is in a mosque and this script is the whole runbook.
+# Does the environment actually WORK, as opposed to merely existing? A venv
+# left behind by a failed run is worse than no venv at all: bin/python can be
+# present while pip is not, or can point at an interpreter that this image no
+# longer has. And because it lives on the network volume, it SURVIVES the
+# redeploy you did to get away from the broken box.
+# pyvenv.cfg is what makes it a venv rather than a stray python on PATH;
+# without that check, a bare interpreter would find the SYSTEM pip and pass.
+venv_ok() {
+    [ -f "$WBENCH/pyvenv.cfg" ] \
+        && [ -x "$WBENCH/bin/python" ] \
+        && "$WBENCH/bin/python" -m pip --version >/dev/null 2>&1
+}
+
+if ! venv_ok; then
+    if [ -e "$WBENCH" ]; then
+        echo "  the environment at $WBENCH is unusable — rebuilding it"
+        rm -rf "$WBENCH"
+    fi
+
+    # Plenty of base images ship python3 with no ensurepip, so `venv` creates
+    # a directory and then fails. Debian's answer is a separate python3-venv
+    # package. Install it rather than telling the operator to, because the
+    # operator is in a mosque and this script is the whole runbook.
     if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
         echo "  python3-venv is missing — installing it"
         if command -v apt-get >/dev/null 2>&1; then
@@ -205,8 +223,9 @@ if [ ! -x "$WBENCH/bin/python" ]; then
         fi
     fi
 
-    if ! python3 -m venv "$WBENCH" 2>/dev/null; then
-        # Last resort: build the venv without pip, then bootstrap pip into it.
+    python3 -m venv "$WBENCH" || true
+    if ! venv_ok; then
+        # Last resort: a venv without pip, then bootstrap pip into it by hand.
         echo "  venv still incomplete — falling back to get-pip"
         rm -rf "$WBENCH"
         python3 -m venv --without-pip "$WBENCH"
@@ -217,13 +236,15 @@ if [ ! -x "$WBENCH/bin/python" ]; then
     "$WBENCH/bin/python" -m pip install --quiet --upgrade pip
 fi
 
-if [ ! -x "$WBENCH/bin/pip" ]; then
+if ! venv_ok; then
     echo "Could not build a working Python environment at $WBENCH." >&2
-    echo "Redeploy this box on an image with python3.10 or newer." >&2
+    echo "python3 here is $PYVER. If that is below 3.9, redeploy this box on a" >&2
+    echo "newer image. Otherwise delete $WBENCH and run this again." >&2
     exit 1
 fi
+
 # Lean by design: faster-whisper + ctranslate2 + the CUDA 12 libs, no torch.
-"$WBENCH/bin/pip" install --quiet -r "$WORKDIR/requirements-server.txt"
+"$WBENCH/bin/python" -m pip install --quiet -r "$WORKDIR/requirements-server.txt"
 "$WBENCH/bin/python" - <<'PY'
 import faster_whisper, ctranslate2
 print(f"  faster-whisper {faster_whisper.__version__}, "
