@@ -166,6 +166,11 @@ If you want to stop it **right now** — the laptop crashed, or you closed the l
 — double-click **`STOP.bat`**. It is safe to run at any time and tells you
 plainly whether anything was rented.
 
+And a fourth, which is the one that actually caps the money: the RunPod account
+holds **prepaid credit with auto-pay switched off**, so it can never be charged
+more than what is on it. If everything else somehow failed, you would lose the
+credit — not run up a bill.
+
 > `run.bat` still works and still reads `pod_url.txt`, for the case where you
 > have started a server by hand. `check_gpu.bat` checks such a server. Neither
 > is needed for the one-click procedure above.

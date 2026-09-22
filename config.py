@@ -142,7 +142,9 @@ RUNPOD_CONTAINER_DISK_GB = 20
 # whether or not anyone is speaking; a forgotten one is ~$500 a month. The pod
 # terminates itself this many hours after starting, no matter what. Generous on
 # purpose — it is a runaway-cost guard, not a schedule. START.bat also
-# terminates on exit, and both are backed by keeping the RunPod balance low.
+# terminates on exit, and both are backed by the prepaid balance: RunPod
+# cannot bill past the credit on the account, so a small float with auto-pay
+# OFF is a hard ceiling rather than a hope. See server/README.md.
 RUNPOD_DEADLINE_HOURS = 6
 
 # How long to wait for a pod to boot and load the models before giving up and

@@ -292,7 +292,7 @@ risk in this system. *Stopping* a pod is not enough, either: it keeps billing
 for its disks. Only **terminate** frees the GPU, and the network volume survives
 that just fine.
 
-So none of the three mechanisms is you remembering:
+So none of these mechanisms is you remembering:
 
 1. **`START.bat` terminates the pod** when the subtitle window closes, and
    `STOP.bat` does it on demand if the laptop crashed.
@@ -306,10 +306,30 @@ So none of the three mechanisms is you remembering:
    is left, and `pkill -f khutbah-deadman` cancels it.
 3. **The next `START.bat` cleans up** anything that still got through.
 
-Belt and braces: **keep the RunPod prepaid balance low** — around $60. If all
-three somehow fail, a forgotten pod dies in a few days rather than running for a
-month. Keep the floor above the volume's monthly cost, since a sustained zero
-balance can eventually put the volume at risk.
+### The prepaid balance is the real hard cap
+
+The fourth guard is the strongest, and it needs no code: **keep a small prepaid
+balance and do not turn on auto-pay.** RunPod cannot charge you more than the
+credit on the account, so a $50 float is a $50 ceiling — not a target you hope
+to stay under.
+
+What actually happens if all three software guards fail and a pod runs away:
+
+* it burns the balance at $0.69/hour, so **$50 is gone in about three days**;
+* at $0, RunPod stops the pod. Per RunPod's own docs, *"Pods with a network
+  volume are stopped and their data is preserved, while Pods without one are
+  terminated and their data cannot be recovered."* Ours always has a network
+  volume, so **the models survive** and the bill stops.
+
+So the worst case is losing the float and having to top it up — not an
+open-ended bill, and not rebuilding the volume.
+
+Two settings to get right in the RunPod console:
+
+* **Turn ON low-balance notifications.** This is what tells you a pod ran away,
+  and what stops you arriving on a Friday to a stopped account.
+* **Leave auto-pay OFF.** Auto-pay is what converts the hard cap back into an
+  open-ended bill. Top up by hand.
 
 ## Choosing the translation model
 
