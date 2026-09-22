@@ -47,13 +47,27 @@ class PodError(RuntimeError):
 
 
 def api_key() -> str:
+    """The RunPod API key, from the environment only.
+
+    Never from a file. This key can create and destroy machines that cost
+    money, so it is held to the same rule as WHISPER_SERVER_TOKEN: environment
+    only, never committed, never logged.
+    """
     key = os.environ.get("RUNPOD_API_KEY", "").strip()
     if not key:
+        # The mosque laptop is Windows; development happens on Linux. Printing
+        # the wrong one of these wastes somebody's afternoon.
+        how = ('Open a terminal and run:\n'
+               '    setx RUNPOD_API_KEY "<your key>"\n'
+               "then CLOSE and reopen it."
+               if os.name == "nt" else
+               'Run:\n'
+               '    export RUNPOD_API_KEY="<your key>"\n'
+               "(add it to ~/.bashrc to make it stick).")
         raise PodError(
-            "RUNPOD_API_KEY is not set on this laptop.\n"
-            'Open a terminal and run:  setx RUNPOD_API_KEY "<your key>"\n'
-            "then close it and try again. The key is on the RunPod website "
-            "under Settings -> API Keys."
+            "RUNPOD_API_KEY is not set.\n"
+            f"{how}\n"
+            "The key is on the RunPod website under Settings -> API Keys."
         )
     return key
 
@@ -168,6 +182,24 @@ def create(token: str) -> dict:
     return pod
 
 
+def volume(volume_id: str) -> dict | None:
+    """The network volume's real name, size and datacenter, or None if absent."""
+    try:
+        return _request("GET", f"/networkvolumes/{volume_id}", timeout=20.0)
+    except PodError as exc:
+        if "HTTP 404" in str(exc):
+            return None
+        raise
+
+
+def running_pods() -> list:
+    """Every pod on the account, so a leaked one cannot hide."""
+    got = _request("GET", "/pods", timeout=20.0)
+    if isinstance(got, dict):
+        got = got.get("pods") or got.get("data") or []
+    return [p for p in (got or []) if isinstance(p, dict)]
+
+
 def get(pod_id: str) -> dict | None:
     """Current state of a pod, or None if it no longer exists."""
     try:
@@ -273,3 +305,112 @@ def release_leftover() -> str | None:
         return None
     forget()
     return pod_id
+
+
+# --- "is this laptop set up correctly?" -----------------------------------
+
+
+def check() -> int:
+    """Validate the RunPod settings WITHOUT renting anything.
+
+    Everything here is a free API call. The point is that every mistake it can
+    find — a mistyped volume ID, a volume in a different datacenter from the
+    one config.py names, an expired key — would otherwise be discovered by
+    START.bat failing, and the natural time to discover that is a Friday.
+    """
+    from subtitles.console import enable_utf8_console
+
+    enable_utf8_console()
+    OK, BAD, WARN = "  OK   ", "  FAIL ", "  WARN "
+    problems = []
+
+    print("RunPod setup check")
+    print("=" * 62)
+    print(f"  volume     : {getattr(config, 'RUNPOD_NETWORK_VOLUME_ID', '') or '(not set)'}")
+    print(f"  datacenter : {getattr(config, 'RUNPOD_DATACENTER_ID', '') or '(not set)'}")
+    print(f"  cards      : {', '.join(getattr(config, 'RUNPOD_GPU_TYPES', [])) or '(none)'}")
+    print(f"  cloud      : {getattr(config, 'RUNPOD_CLOUD_TYPE', '')}")
+    print("=" * 62)
+    print()
+
+    try:
+        api_key()
+    except PodError as exc:
+        print(f"{BAD}{exc}")
+        return 1
+
+    # Any authenticated call proves the key. Listing pods also tells us
+    # whether something is billing right now, which is worth knowing anyway.
+    try:
+        pods = running_pods()
+    except PodError as exc:
+        print(f"{BAD}{exc}")
+        return 1
+    print(f"{OK}the API key works")
+
+    vol_id = getattr(config, "RUNPOD_NETWORK_VOLUME_ID", "").strip()
+    if not vol_id:
+        print(f"{BAD}RUNPOD_NETWORK_VOLUME_ID is empty in config.py")
+        return 1
+
+    try:
+        vol = volume(vol_id)
+    except PodError as exc:
+        print(f"{BAD}{exc}")
+        return 1
+    if vol is None:
+        print(f"{BAD}there is no network volume with the id {vol_id!r}.")
+        print("       Check it on the RunPod site under Storage.")
+        return 1
+
+    size = vol.get("size")
+    print(f"{OK}volume {vol.get('name')!r} exists: {size} GB in {vol.get('dataCenterId')}")
+
+    # The mismatch that produces the least helpful error later: RunPod refuses
+    # to attach a volume to a pod in another datacenter, and the message does
+    # not say that is what happened.
+    want_dc = getattr(config, "RUNPOD_DATACENTER_ID", "").strip()
+    if vol.get("dataCenterId") != want_dc:
+        print(f"{BAD}config.py says RUNPOD_DATACENTER_ID = {want_dc!r}, but the "
+              f"volume is in {vol.get('dataCenterId')!r}.")
+        print("       A volume cannot move. Change config.py to match the volume.")
+        problems.append("datacenter mismatch")
+    else:
+        print(f"{OK}config.py and the volume agree on the datacenter")
+
+    if size and size < 20:
+        print(f"{WARN}{size} GB is tight — the one-time model build peaks at "
+              f"about 14 GB for NLLB-1.3B. Volumes can be grown, not shrunk.")
+
+    if not getattr(config, "RUNPOD_GPU_TYPES", []):
+        print(f"{BAD}RUNPOD_GPU_TYPES is empty — nothing to rent.")
+        problems.append("no GPU types")
+
+    # Anything already running is money being spent right now.
+    live = [p for p in pods if p.get("desiredStatus") == "RUNNING"]
+    if live:
+        print()
+        print(f"{WARN}{len(live)} pod(s) are RUNNING on this account right now:")
+        for p in live:
+            print(f"         {p.get('id')}  {p.get('name')}  "
+                  f"${p.get('costPerHr')}/hr")
+        print("       If you did not mean to leave these up, run STOP.bat or "
+              "terminate them on the RunPod site.")
+    else:
+        print(f"{OK}no pods are running (nothing is being billed for compute)")
+
+    print()
+    if problems:
+        print("NOT READY. Fix the above, then run this again.")
+        return 1
+    print("Settings look right. Nothing has been rented and nothing charged.")
+    print()
+    print("Next: build the models onto the volume once, on a CPU pod —")
+    print("see server/README.md. After that, START.bat is the whole procedure.")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(check())

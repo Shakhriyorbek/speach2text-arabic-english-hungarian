@@ -98,7 +98,7 @@ REMOTE_ASR_RETRY_EVERY = 20                 # while fallen back, re-probe the
 # The prepared network volume, from the RunPod console. This holds the models
 # and the venv, so a pod is ready in minutes instead of forty. REQUIRED — with
 # no volume a fresh pod would download 20 GB before it could say anything.
-RUNPOD_NETWORK_VOLUME_ID = ""
+RUNPOD_NETWORK_VOLUME_ID = "ygpnnqangq"
 
 # The datacenter the volume lives in. A network volume CANNOT move, so the pod
 # has to be created here — this is the one setting you cannot change later
@@ -113,14 +113,16 @@ RUNPOD_NETWORK_VOLUME_ID = ""
 # Before committing, check on the RunPod site that the one you pick actually
 # has more than one of RUNPOD_GPU_TYPES in stock. A datacenter with only 4090s
 # is a datacenter that strands you the week 4090s are busy.
-RUNPOD_DATACENTER_ID = ""                   # e.g. "EU-CZ-1"
+RUNPOD_DATACENTER_ID = "EU-RO-1"                   # e.g. "EU-CZ-1"
 
 # Cards we are willing to rent, best first. This is a LIST, not a choice, and
 # that matters: if the datacenter is out of 4090s at 11am on a Friday we cannot
 # move to another datacenter (the volume is pinned), so the only protection
 # against a stockout is being willing to take the next card. All of these have
 # 24 GB, which fits large-v3 + NLLB with room for beam search.
-# Names must match RunPod's exactly — see GET https://rest.runpod.io/v1/gpuTypes
+# Names must match RunPod's exactly, e.g. "NVIDIA GeForce RTX 4090". Copy them
+# from the GPU list on the Pods deploy page; there is no REST endpoint that
+# lists them, and a name that does not match is rejected only at rent time.
 RUNPOD_GPU_TYPES = [
     "NVIDIA GeForce RTX 4090",
     "NVIDIA RTX A5000",
