@@ -27,7 +27,8 @@ BACKEND = "local"
 #               meaning that local "small"/"medium" lost. Needs internet, plus
 #               WHISPER_SERVER_TOKEN in the environment. Falls back to the local
 #               model automatically if the server cannot be reached.
-# The Hungarian translation always stays on this laptop either way.
+# Where the Hungarian translation runs is a SEPARATE choice — see MT_LOCATION
+# further down. It defaults to "remote" too.
 ASR_LOCATION = "remote"
 
 # --- remote ASR settings (ignored when ASR_LOCATION = "cpu") ---
@@ -52,13 +53,97 @@ ASR_LOCATION = "remote"
 _SERVER_URL = os.environ.get("WHISPER_SERVER_URL", "").strip().rstrip("/")
 
 REMOTE_ASR_URL = _SERVER_URL or "https://YOUR-POD-ID-8756.proxy.runpod.net"
-REMOTE_ASR_TIMEOUT = 10.0                   # seconds; must be well under the
-                                            # time the congregation would notice
-                                            # a stall. On timeout we fall back.
+# Timeouts are STALL GUARDS, not targets. A 5 s utterance transcribes in about
+# 0.25 s on a rented 4090, so anything near ten seconds is not "patient", it is
+# a hang. And it is a hang that costs audio: app.py's asr-mt loop is a single
+# serial thread, so while it waits, audio_q (ASR_QUEUE_MAX = 4) fills and starts
+# dropping the OLDEST utterances. A 10 s stall therefore loses roughly two
+# sentences AND freezes the screen for ten seconds; a 4 s stall loses none and
+# falls back cleanly to the laptop.
+REMOTE_ASR_TIMEOUT = 4.0                    # ~16x the expected GPU time
+REMOTE_ASR_PARTIAL_TIMEOUT = 1.5            # snapshots of speech still in
+                                            # progress. A partial slower than
+                                            # PARTIAL_EVERY_MS is superseded by
+                                            # the next one before it can be
+                                            # shown, so waiting longer than that
+                                            # is pure delay — give up early and
+                                            # let the next refresh win.
 REMOTE_ASR_FAILURES_BEFORE_FALLBACK = 2     # consecutive failures before giving
                                             # up on the server for a while
 REMOTE_ASR_RETRY_EVERY = 20                 # while fallen back, re-probe the
                                             # server every Nth utterance
+
+# ---------------------------------------------------------------------------
+# Renting the GPU automatically (START.bat / subtitles.launcher)
+# ---------------------------------------------------------------------------
+
+# The settings above assume somebody already started a GPU server and pasted its
+# URL into pod_url.txt. That is four console steps, a 64-character token copied
+# by hand, and a web terminal — on a Friday morning, done by whoever turned up.
+#
+# So the laptop rents the GPU itself. START.bat creates a pod through RunPod's
+# REST API, waits for it, runs the subtitles, and terminates the pod when the
+# window closes. Nothing is typed: the token is generated here and handed to the
+# pod through the API, and the URL is derived from the pod ID we just created —
+# which removes what preflight.py calls "the single most likely day-of failure".
+#
+# run.bat + pod_url.txt still work and are the documented fallback for when the
+# API is unreachable. Set RUNPOD_NETWORK_VOLUME_ID = "" to disable all of this.
+
+# Your API key goes in the ENVIRONMENT, never in this file — it can create and
+# destroy machines that cost money:
+#     setx RUNPOD_API_KEY "<the key from the RunPod console>"
+# Close and reopen the terminal afterwards. START.bat says so if it is missing.
+
+# The prepared network volume, from the RunPod console. This holds the models
+# and the venv, so a pod is ready in minutes instead of forty. REQUIRED — with
+# no volume a fresh pod would download 20 GB before it could say anything.
+RUNPOD_NETWORK_VOLUME_ID = ""
+
+# The datacenter the volume lives in. A network volume CANNOT move, so the pod
+# has to be created here. Prefer one near the mosque: with STREAMING_PARTIALS on
+# the laptop talks to the pod about twice a second, so round-trip time is felt.
+RUNPOD_DATACENTER_ID = ""                   # e.g. "EU-RO-1"
+
+# Cards we are willing to rent, best first. This is a LIST, not a choice, and
+# that matters: if the datacenter is out of 4090s at 11am on a Friday we cannot
+# move to another datacenter (the volume is pinned), so the only protection
+# against a stockout is being willing to take the next card. All of these have
+# 24 GB, which fits large-v3 + NLLB with room for beam search.
+# Names must match RunPod's exactly — see GET https://rest.runpod.io/v1/gpuTypes
+RUNPOD_GPU_TYPES = [
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA RTX A5000",
+    "NVIDIA L40S",
+]
+
+# "SECURE" = RunPod's own vetted datacenters. "COMMUNITY" = other people's idle
+# hardware at about half the price. We pay the difference: at roughly 10 GPU-
+# hours a month that is ~$4, and the failure it buys out of is arriving on a
+# Friday to find no machine free — with a volume that cannot follow us elsewhere.
+RUNPOD_CLOUD_TYPE = "SECURE"
+
+# Only needs CUDA + python3; everything else lives on the volume. The container
+# disk is scratch space, thrown away with the pod.
+RUNPOD_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+RUNPOD_CONTAINER_DISK_GB = 20
+
+# Hard stop, enforced ON THE POD so it survives this laptop dying. A pod bills
+# whether or not anyone is speaking; a forgotten one is ~$500 a month. The pod
+# terminates itself this many hours after starting, no matter what. Generous on
+# purpose — it is a runaway-cost guard, not a schedule. START.bat also
+# terminates on exit, and both are backed by keeping the RunPod balance low.
+RUNPOD_DEADLINE_HOURS = 6
+
+# How long to wait for a pod to boot and load the models before giving up and
+# offering to carry on without the GPU. Measured: ~2-3 min to boot, then ~1-2
+# min to load large-v3 and NLLB off the network volume.
+POD_BOOT_TIMEOUT_S = 480
+
+# Port the server listens on, exposed through RunPod's HTTPS proxy as
+# https://<POD_ID>-<port>.proxy.runpod.net — no firewall, no SSH tunnel.
+RUNPOD_SERVER_PORT = 8756
+
 
 # --- cloud mode settings (ignored when BACKEND = "local") ---
 AZURE_TARGET_LANG = "hu"                    # translate into Hungarian
@@ -235,8 +320,10 @@ NLLB_LANG_MAP = {"ar": "arb_Arab", "en": "eng_Latn"}
 MT_LOCATION = "remote"
 
 REMOTE_MT_URL = _SERVER_URL or REMOTE_ASR_URL   # the same box serves both
-REMOTE_MT_TIMEOUT = 8.0                     # a line is ~0.2s on a T4; this is
-                                            # a stall guard, not a target
+REMOTE_MT_TIMEOUT = 4.0                     # a line is ~0.2-0.4s on a GPU; this
+                                            # is a stall guard, not a target.
+                                            # See REMOTE_ASR_TIMEOUT above for
+                                            # why it is not larger.
 REMOTE_MT_FAILURES_BEFORE_FALLBACK = 2
 REMOTE_MT_RETRY_EVERY = 20
 

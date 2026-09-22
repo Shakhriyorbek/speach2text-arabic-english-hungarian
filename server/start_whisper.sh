@@ -96,6 +96,54 @@ if [ -z "$NLLB_MODEL_DIR" ]; then
     echo "      The laptop will translate with its 600M model instead."
 fi
 
+# --- billing dead-man's switch --------------------------------------------
+
+# A GPU bills whether or not anyone is speaking, and the usual way a khutbah
+# ends is that somebody shuts the laptop. Nothing on this box would then ever
+# stop it: ~$0.69/hour is about $500 a month, ten times the whole budget.
+#
+# So the pod kills itself after a fixed wall-clock deadline. Three properties
+# matter, and all three are easy to get wrong:
+#
+#   * TERMINATE, not stop. A stopped pod keeps billing for its disks. The
+#     models are on the network volume and survive either way.
+#   * DETACHED. setsid puts the guard in its own session so it outlives Ctrl-C,
+#     this script, the exec below, and the container's main process exiting.
+#     A guard that dies with the server is worthless in exactly the case it
+#     exists for.
+#   * WALL-CLOCK, not idle. An idle timer can only fire while the server is
+#     alive, and any threshold long enough to survive the gap between the two
+#     parts of a khutbah would also be long enough to be useless. A fixed
+#     deadline cannot kill us mid-sermon and cannot fail to fire.
+DEADLINE_HOURS="${DEADLINE_HOURS:-6}"
+
+if [ "$DEADLINE_HOURS" = "0" ]; then
+    echo "WARNING: DEADLINE_HOURS=0 — this pod will bill until somebody stops" >&2
+    echo "         it by hand. Nothing here will do it for you." >&2
+elif [ -z "${RUNPOD_POD_ID:-}" ] || ! command -v runpodctl >/dev/null 2>&1; then
+    # Not fatal. Refusing to serve a congregation over a billing guard is the
+    # wrong trade — but this has to be said loudly, not logged quietly.
+    echo "WARNING: cannot arm the automatic shutdown on this box." >&2
+    if [ -z "${RUNPOD_POD_ID:-}" ]; then
+        echo "         RUNPOD_POD_ID is not set (not a RunPod pod?)." >&2
+    else
+        echo "         runpodctl is not installed." >&2
+    fi
+    echo "         THIS MACHINE WILL BILL UNTIL YOU TERMINATE IT YOURSELF." >&2
+else
+    _deadline_secs=$(awk "BEGIN{printf \"%d\", $DEADLINE_HOURS * 3600}")
+    _deadline_at=$(date -u -d "+${_deadline_secs} seconds" '+%Y-%m-%d %H:%M UTC' \
+                   2>/dev/null || echo "in ${DEADLINE_HOURS}h")
+    # The marker in the command line is what `pkill -f` below matches on.
+    setsid nohup sh -c \
+        "sleep ${_deadline_secs}; \
+         echo khutbah-deadman: terminating \$RUNPOD_POD_ID; \
+         runpodctl pod delete \"\$RUNPOD_POD_ID\"" \
+        >"$WORKDIR/deadman.log" 2>&1 < /dev/null &
+    echo "$_deadline_at" > "$WORKDIR/deadline" 2>/dev/null || true
+    DEADMAN_AT="$_deadline_at"
+fi
+
 # --- go --------------------------------------------------------------------
 
 echo "workdir     : $WORKDIR"
@@ -103,6 +151,10 @@ echo "whisper     : $WHISPER_MODEL on $WHISPER_DEVICE ($WHISPER_COMPUTE_TYPE)"
 echo "translation : ${NLLB_MODEL_DIR:-disabled}"
 echo "listening   : $WHISPER_SERVER_HOST:$WHISPER_SERVER_PORT"
 echo "token       : $WHISPER_SERVER_TOKEN"
+if [ -n "${DEADMAN_AT:-}" ]; then
+    echo "auto-stop   : $DEADMAN_AT  (terminates this pod, whatever else happens)"
+    echo "              to cancel it:  pkill -f khutbah-deadman"
+fi
 echo
 echo "Put this on the laptop, in pod_url.txt, once the pod's URL is known:"
 echo "    https://<POD_ID>-${WHISPER_SERVER_PORT}.proxy.runpod.net"
