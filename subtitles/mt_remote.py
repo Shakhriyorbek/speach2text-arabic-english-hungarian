@@ -19,12 +19,14 @@ should cost accuracy, never a blank screen.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import urllib.error
 import urllib.request
 
 import config
+from subtitles.http_client import KeepAliveClient
 
 
 class RemoteTranslator:
@@ -33,6 +35,7 @@ class RemoteTranslator:
     def __init__(self, local_fallback=None):
         self.url = config.REMOTE_MT_URL.rstrip("/")
         self.timeout = config.REMOTE_MT_TIMEOUT
+        self._http = KeepAliveClient(self.url)
         self._fallback = local_fallback
         self._consecutive_failures = 0
         self._using_fallback = False
@@ -49,18 +52,17 @@ class RemoteTranslator:
     # -- internals ----------------------------------------------------------
 
     def _post(self, text: str) -> str:
-        req = urllib.request.Request(
-            f"{self.url}/translate",
-            data=text.encode("utf-8"),
-            method="POST",
-            headers={
+        raw = self._http.post(
+            "/translate",
+            text.encode("utf-8"),
+            {
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "text/plain; charset=utf-8",
                 "X-Src-Lang": self.src_lang,
             },
+            self.timeout,
         )
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        payload = json.loads(raw.decode("utf-8"))
         return (payload.get("text") or "").strip()
 
     def _fallback_translate(self, text: str) -> str:
@@ -110,15 +112,15 @@ class RemoteTranslator:
                     print("[remote MT] server is back — using the GPU again.",
                           flush=True)
                     return out
-                except (urllib.error.URLError, OSError, ValueError,
-                        json.JSONDecodeError):
+                except (urllib.error.URLError, http.client.HTTPException,
+                        OSError, ValueError, json.JSONDecodeError):
                     pass
             return self._fallback_translate(text)
 
         try:
             out = self._post(text)
-        except (urllib.error.URLError, OSError, ValueError,
-                json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, http.client.HTTPException,
+                OSError, ValueError, json.JSONDecodeError) as exc:
             self._note_failure(exc)
             return self._fallback_translate(text)
 
