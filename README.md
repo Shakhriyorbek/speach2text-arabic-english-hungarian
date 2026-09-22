@@ -1,16 +1,24 @@
 # Khutbah Live Subtitles — Arabic / English → Hungarian (offline)
 
 Live subtitles for the Friday khutbah. A stage microphone feeds a laptop; the
-laptop shows large Hungarian subtitles on a projector or TV. It runs **fully
-offline** and uses only free, open-source software — nothing to pay for, no
+laptop shows large Hungarian subtitles on a projector or TV. It uses only free,
+open-source software and **runs fully offline** — nothing to pay for, no
 internet needed during the sermon.
+
+There is also an optional **GPU mode** that rents a graphics card by the hour
+for noticeably better Arabic (about $14/month, one double-click on the day). It
+falls back to the offline models by itself whenever it cannot reach the GPU, so
+the offline path above is always the floor, never a separate program.
 
 - **Part 1** of the khutbah (all Arabic) → **Mode 1** (press **F1**).
 - **Part 2** (English talk with Arabic Quran/hadith quotes) → **Mode 2** (press **F2**).
 
-How it works internally: the speech recognizer (Whisper) is run in
-*translate* mode, which turns any spoken language into **English** text; a
-second offline model then translates that English into **Hungarian**.
+How it works internally: the speech recognizer (Whisper) transcribes the
+**Arabic** as Arabic, and a second model (NLLB) translates that straight into
+**Hungarian** with no English in between. The English pivot it used to take is
+still available (`TRANSLATION_PATH = "pivot"`) but is no longer the default —
+every hop loses meaning, and one measured failure inverted a sentence about
+Satan on a projector.
 
 ---
 
@@ -87,21 +95,29 @@ MIC_DEVICE = 3   # the index shown for your microphone
 
 The offline mode is free and private, but a weak laptop's CPU caps how good the
 **Arabic** can get. Renting a GPU by the hour lifts both ends of the pipeline:
-Whisper `large-v3` instead of `small`, and NLLB-1.3B instead of the 600M model
-that was measured turning *"we seek His forgiveness"* into *"we forgive Him"*.
+Whisper `large-v3` instead of `small`, and NLLB-1.3B (or 3.3B) instead of the
+600M model that was measured turning *"we seek His forgiveness"* into *"we
+forgive Him"*.
 
-It is cheaper than it sounds — roughly **$6 a month** for a weekly khutbah,
-because you only pay for the hours the GPU is actually running. Any provider
-works; **`server/README.md` has the full runbook**, written against RunPod.
+**On the day it is one double-click.** `START.bat` rents a GPU, waits for it,
+runs the subtitles, and gives the GPU back when you close the window. Nothing is
+typed — no pod to create, no token to copy, no URL to paste. Allow 4–6 minutes,
+and start it before the congregation arrives.
 
-The short version: build the models onto a persistent volume the night before,
-start a pod on the morning, put its URL in `pod_url.txt`, and double-click
-`check_gpu.bat` to confirm before you begin. If the server is unreachable at any
-point the laptop transparently falls back to its own models, so a network
-failure costs quality rather than the whole screen.
+If anything fails it offers to carry on using this laptop's own models, so a
+network problem costs accuracy rather than the whole screen.
 
-Set `ASR_LOCATION = "cpu"` and `MT_LOCATION = "cpu"` in `config.py` to go back
-to fully offline.
+About **$14 a month** for a weekly khutbah: a 24 GB card for the hour or two it
+is up, plus the network volume that holds the models. A pod nobody stopped would
+be ~$500, so three separate mechanisms terminate it — see `server/README.md`,
+which has the full runbook.
+
+Setup is a one-time job for someone technical: build the models onto a network
+volume, put three values in `config.py`, and set `RUNPOD_API_KEY` once on the
+laptop. After that the volunteers only ever see `START.bat`.
+
+Set `ASR_LOCATION = "cpu"` and `MT_LOCATION = "cpu"` in `config.py` and use
+`run.bat` to go back to fully offline.
 
 ---
 
@@ -208,6 +224,9 @@ especially valued.
 | `mt_remote.py` | the same, on a GPU box; falls back to `mt_direct.py` |
 | `names.py` | proper names, substituted before the model sees them |
 | `preflight.py` | "is the GPU ready?" — run by `check_gpu.bat` |
+| `pod.py` | rents and releases the GPU through RunPod's API |
+| `launcher.py` | the `START.bat` progress window; falls back to laptop-only |
+| `http_client.py` | one kept-open HTTPS connection, shared by both remote stages |
 | `test_pipeline.py` | run a WAV through the real pipeline, no mic needed |
 | `ui.py` | fullscreen Tkinter subtitle window |
 | `app.py` | wires the threads/queues together |

@@ -29,81 +29,119 @@ problem, and a bigger model is the only fix.
 Provider-neutral: anything with Ubuntu, an NVIDIA driver and `python3`. It was
 originally an Azure `NC4as_T4_v3`; nothing here depends on that any more.
 
-**You need less GPU than you think.** `large-v3` in fp16 is about 3 GB of VRAM
-and NLLB-1.3B about 2.7 GB, so **8 GB is comfortable** and 16 GB is roomy. Live
-prices at the time of writing:
+**VRAM, measured rather than guessed** (float16, `beam_size` 5 on finals):
+
+| | weights | peak with context + activations |
+|---|---|---|
+| Whisper `large-v3` | 3.1 GB | ~4 GB |
+| NLLB-200-distilled-1.3B | 2.7 GB | ~3 GB |
+| NLLB-200-3.3B | 7.6 GB | ~8.5 GB |
+
+So **12 GB is the floor** for `large-v3` + the 1.3B, 16 GB is comfortable, and
+you want **24 GB** if you run the 3.3B. An earlier version of this file said
+8 GB was comfortable; that was wrong — it leaves no margin, and running out of
+VRAM does not happen at startup, it happens on an utterance.
+
+If you are stuck with a smaller card, both models can be loaded at int8 without
+rebuilding anything (CTranslate2 converts at load time):
+
+```
+WHISPER_COMPUTE_TYPE=int8_float16 NLLB_COMPUTE_TYPE=int8_float16 \
+  bash /workspace/start_whisper.sh
+```
+
+That roughly halves both. Treat it as an emergency lever, not a default —
+nothing here has measured what int8 does to religious Arabic, and this system's
+whole reason for moving translation to a GPU was that a *smaller* model silently
+inverted meaning.
+
+**Prices at the time of writing.** At about ten GPU-hours a month, the hourly
+rate is not the thing to optimise — reliability is.
 
 | | GPU | ~$/hour |
 |---|---|---|
-| Vast.ai (spot) | RTX 3060 12 GB / A4000 16 GB | $0.04 – $0.05 |
+| RunPod Community | RTX A5000 24 GB | ~$0.27 |
+| RunPod Community | RTX 4090 24 GB | ~$0.34 |
+| **RunPod Secure** | **RTX 4090 24 GB** | **~$0.69** |
 | Vast.ai (on-demand) | RTX 3090 24 GB | ~$0.15 |
-| **RunPod Community** | **RTX A4000 16 GB** | **~$0.17** |
-| RunPod Community | RTX 3090 24 GB | ~$0.22 |
-| Scaleway (EU, invoiced) | L4 24 GB | ~€0.79 |
-| *Azure (what we used to use)* | *Tesla T4* | *~$0.50* |
+| Vast.ai (spot) | RTX 3060 12 GB | ~$0.04 |
 
-Prefer a **European** host. Latency matters more than it looks: with
-`STREAMING_PARTIALS = True` the laptop sends a refresh roughly once a second
-while someone is speaking, not just once per utterance.
+**Take Secure Cloud.** Community Cloud is other people's idle hardware. A
+network volume pins you to one datacenter, so if the Community pool there has
+nothing free at 11:00 on a Friday you have a disk you cannot attach to a GPU and
+no way to move. The difference is about $4 a month at this usage.
 
-Avoid **spot / interruptible** instances for a live khutbah. They are half the
-price and can be reclaimed with little notice, which on a Friday means the
-subtitles drop to the laptop's models mid-sentence.
+For the same reason, `config.RUNPOD_GPU_TYPES` is a **list**: RunPod is asked
+for whichever of those cards is actually free. Before committing to a
+datacenter, check it stocks more than one 24 GB model.
+
+Prefer a **European** datacenter. Latency matters more than it looks: with
+`STREAMING_PARTIALS = True` the laptop makes about two requests a second while
+someone is speaking.
+
+Avoid **spot / interruptible** instances. They are half the price and can be
+reclaimed with little notice, which on a Friday means the subtitles drop to the
+laptop's models mid-sentence.
+
+### What it costs
+
+| | $/month |
+|---|---|
+| RTX 4090 Secure, ~12 h/month | 8.28 |
+| 80 GB network volume @ $0.07/GB | 5.60 |
+| One CPU pod to build the models (once, ever) | ~0.20 |
+| **Total** | **~$14** |
+
+The number that dwarfs all of these is a pod nobody stopped: $0.69 × 730 hours
+is about **$500 a month**. See *Cost discipline* below — three separate
+mechanisms exist for that, and none of them is you remembering.
 
 ---
 
-## Setup: one command
+## Setup: build the volume once
 
-On the box (RunPod's web terminal, or over SSH):
+Do this **once**, weeks before you need it, and never on a Friday.
+
+### 1. Create the network volume
+
+RunPod → Storage → Network Volume. **80 GB**, in a **European** datacenter that
+stocks more than one 24 GB card. Volumes **grow but never shrink**, and the
+datacenter cannot be changed afterwards, so both of those are decided now.
+
+Why 80 GB when steady state is ~15 GB:
+
+| | GB |
+|---|---|
+| Whisper `large-v3` cache | 3.1 |
+| NLLB-3.3B, raw download (deleted after conversion) | 17.6 |
+| NLLB-3.3B converted | 6.6 |
+| NLLB-1.3B converted (keep it — the A/B baseline) | 2.7 |
+| `wbench` venv | 2.5 |
+| **peak, during the one-time build** | **~32.5** |
+| **steady state** | **~15** |
+
+### 2. Build the models on a CPU pod
+
+Attach the volume to a cheap **CPU** pod at `/workspace`:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/Shakhriyorbek/speach2text-arabic-english-hungarian/main/server/bootstrap.sh | bash -s -- --build-nllb
 ```
 
-`bootstrap.sh` checks the GPU, fetches the four files the server needs, builds a
-lean runtime venv, downloads `large-v3`, and converts NLLB-1.3B to CTranslate2.
-Drop `--build-nllb` to skip the big conversion and let the laptop translate.
+**A CPU pod, not a GPU one**, and this is not an economy: converting NLLB loads
+the whole checkpoint into CPU RAM as float32 — about 26 GB for the 3.3B — while
+a GPU pod typically has 24–32 GB. Losing that gamble costs forty minutes and a
+finished download. The conversion needs no GPU at all; `build_nllb.py` falls
+back to cpu/int8 for its verification step. bootstrap.sh warns if RAM looks
+short.
 
-It is **idempotent** — running it against a box that already has everything is a
-fast no-op, which is exactly what happens on the morning of a khutbah when a
-fresh pod is attached to an already-built volume.
+Add `--nllb-3.3b` for the larger translation model, but read *Choosing the
+translation model* below first — it is not a free upgrade.
 
-Then start it:
+When it finishes, **terminate the pod**. The volume keeps everything.
 
-```
-bash /workspace/start_whisper.sh $(openssl rand -hex 32)
-```
-
-It prints the token it is using. The laptop needs the same value.
-
-### Keep it alive
-
-**A RunPod pod is a container with no init system, so `systemd` is not
-available** and the process dies when the web terminal tab closes. Use `tmux`:
-
-```
-tmux new -s whisper
-bash /workspace/start_whisper.sh <token>
-# detach with ctrl-b then d; reattach later with: tmux attach -t whisper
-```
-
-On a plain VM with systemd, a unit works as before — `ExecStart` should invoke
-`start_whisper.sh`, which already sets `LD_LIBRARY_PATH` and `HF_HOME` for you.
-
----
-
-## Persistent storage: build once, not every Friday
-
-This is the part that turns a forty-minute setup into a three-minute one.
-
-Attach a **network volume** (RunPod: $0.07/GB/month) at `/workspace` and point
-everything at it — which is what `bootstrap.sh` does by default. **50 GB** is
-right: ~3.1 GB for the Whisper cache, ~2.7 GB for NLLB-1.3B, ~2.5 GB for the
-venv, and transient room for the ~5.5 GB raw NLLB download during conversion.
-
-Then build everything the evening *before*, and **terminate the pod**. The GPU
-stops billing; the volume costs about **$0.12 a night**. Next morning create a
-pod, attach the same volume, re-run `bootstrap.sh` (no-op) and start the server.
+`bootstrap.sh` is **idempotent**: run against a prepared volume it is a fast
+no-op, which is exactly what happens every Friday.
 
 > **`HF_HOME` is the whole trick.** `bootstrap.sh` sets it to `/workspace/hf`.
 > Left at its default, faster-whisper caches `large-v3` under
@@ -111,8 +149,54 @@ pod, attach the same volume, re-run `bootstrap.sh` (no-op) and start the server.
 > with the pod. A "pre-baked" volume would then silently re-download 3 GB on the
 > morning you were trying to save time.
 
-A network volume **pins the pod to one datacenter**, so choose the datacenter
-first (an EU one) and check it has GPU stock before committing.
+### 3. Point the laptop at it
+
+In `config.py`: `RUNPOD_NETWORK_VOLUME_ID`, `RUNPOD_DATACENTER_ID`, and
+`RUNPOD_GPU_TYPES`. Then, once, in a terminal on the laptop:
+
+```
+setx RUNPOD_API_KEY "<your RunPod API key>"
+```
+
+Close and reopen it. That is the last thing anyone has to type.
+
+---
+
+## Every Friday: double-click `START.bat`
+
+That is the whole procedure, and it is the point of all of the above.
+
+`subtitles/launcher.py` creates a pod through RunPod's REST API with
+`bootstrap.sh && start_whisper.sh` as its **start command**, waits for
+`/health`, proves the token round-trips, and runs the subtitles. When the
+window closes it terminates the pod.
+
+Two things that used to be copied by hand no longer exist:
+
+* **the token** is generated on the laptop and passed to the pod in the API's
+  `env` field — `preflight.py` calls a mis-copied token "the single most likely
+  day-of failure", and now there is nothing to mis-copy;
+* **the URL** is derived from the pod ID the laptop just created.
+
+`tmux` is gone too. The old runbook needed it because a pod has no init system
+and the server died with the web terminal tab; as the container's start command
+there is no tab to close.
+
+Budget **4–6 minutes**: ~2–3 to get a machine, then ~1–2 to read ~11 GB of
+models off the network volume.
+
+### Doing it by hand
+
+Still supported, and the documented fallback if the RunPod API is unreachable:
+
+```
+bash /workspace/bootstrap.sh
+bash /workspace/start_whisper.sh $(openssl rand -hex 32)      # inside tmux
+```
+
+It prints the token. Put the pod's URL on one line in `pod_url.txt` next to
+`run.bat`, `setx WHISPER_SERVER_TOKEN "<the token>"`, then `check_gpu.bat` and
+`run.bat`.
 
 ---
 
@@ -130,18 +214,12 @@ mapping from the pod's *Connect → Direct TCP Ports* panel
 (`http://<ip>:<mapped-port>`). Use this if the proxy turns out to interfere with
 the request headers — see the warning below.
 
-On the laptop, put the URL on one line in **`pod_url.txt`** next to `run.bat`,
-and set the token once:
-
-```
-setx WHISPER_SERVER_TOKEN "<the token the server printed>"
-```
-
-Close and reopen the terminal. `run.bat` and `check_gpu.bat` read `pod_url.txt`
-themselves, so the pod ID changing every week never means editing Python.
+`START.bat` sets both of these up by itself — it asks for `8756/http` when it
+creates the pod and derives the URL from the pod ID. The paragraphs above matter
+when you are driving it by hand, or debugging why the proxy is misbehaving.
 
 To go back to fully offline, set `ASR_LOCATION = "cpu"` and `MT_LOCATION =
-"cpu"` in `config.py`.
+"cpu"` in `config.py`, and use `run.bat`.
 
 ---
 
@@ -181,19 +259,75 @@ The server refuses to start without `WHISPER_SERVER_TOKEN`. That is deliberate
 and it matters more here than it did on Azure: behind the old network security
 group the token was a second layer, but a proxy URL is public and guessable, so
 **the token is now the only thing between this GPU and anyone who scans for open
-endpoints.** Generate a fresh one per pod (`openssl rand -hex 32`) and don't
-commit it anywhere.
+endpoints.**
+
+`START.bat` generates a fresh 256-bit token for every pod and passes it through
+the API, so this is now automatic and there is nothing to copy, store or
+remember. Driving it by hand, use `openssl rand -hex 32` and don't commit it.
+
+Your **RunPod API key** is the more dangerous secret — it can create and destroy
+machines that cost money. It lives in `RUNPOD_API_KEY` in the environment, never
+in a file, and nothing logs it.
 
 ---
 
 ## Cost discipline
 
-A GPU bills by the hour whether or not anyone is speaking. Start it before the
-khutbah and **terminate it afterwards** — on RunPod, *stopping* a pod still
-bills for its disk, and only the network volume is meant to persist.
+A GPU bills whether or not anyone is speaking. A pod nobody stopped is about
+**$500 a month** — ten times the entire budget, and the single largest financial
+risk in this system. *Stopping* a pod is not enough, either: it keeps billing
+for its disks. Only **terminate** frees the GPU, and the network volume survives
+that just fine.
 
-Realistically, for a weekly khutbah: about **$3.50/month** for a 50 GB volume
-plus roughly **$0.70 per Friday** — call it **$6 a month**.
+So none of the three mechanisms is you remembering:
+
+1. **`START.bat` terminates the pod** when the subtitle window closes, and
+   `STOP.bat` does it on demand if the laptop crashed.
+2. **The pod terminates itself.** `start_whisper.sh` arms a detached wall-clock
+   guard (`RUNPOD_DEADLINE_HOURS`, default 6) that survives Ctrl-C, the server
+   dying, the container's start command exiting and the laptop being unplugged.
+   It is deliberately a fixed deadline rather than an idle timer: an idle timer
+   can only fire while the server is alive, which is not the case it is needed
+   for, and any threshold that survives the gap between the two parts of a
+   khutbah would be too long to be worth having. `check_gpu.bat` shows how long
+   is left, and `pkill -f khutbah-deadman` cancels it.
+3. **The next `START.bat` cleans up** anything that still got through.
+
+Belt and braces: **keep the RunPod prepaid balance low** — around $60. If all
+three somehow fail, a forgotten pod dies in a few days rather than running for a
+month. Keep the floor above the volume's monthly cost, since a sustained zero
+balance can eventually put the volume at risk.
+
+## Choosing the translation model
+
+`--nllb-3.3b` is the obvious way to spend a GPU budget, and it is **not** an
+obvious win. `subtitles/names.py` records that 600M, 1.3B and 3.3B were all
+tried on the proper-name problem and **3.3B was the worst of the three** — which
+is why `Substituter` exists and why it stays regardless.
+
+What a bigger model should buy is meaning fidelity: the failure where *"we seek
+His forgiveness"* came back as *"we forgive Him"*. Measure that, don't assume it:
+
+```
+# 1. transcribe once, and FREEZE the Arabic
+python compare_mt.py --url <pod> --wav khutbah.wav --extract arabic.txt
+
+# 2. serve the 1.3B, translate those exact lines
+python compare_mt.py --url <pod> --lines arabic.txt --out a.tsv
+
+# 3. restart with NLLB_MODEL_DIR=<the 3.3B>, repeat
+python compare_mt.py --url <pod> --lines arabic.txt --out b.tsv
+```
+
+Freezing the Arabic is the whole point: with it fixed, the only difference
+between `a.tsv` and `b.tsv` is the translation model. Then have someone who
+reads Arabic *and* Hungarian mark each line better/same/worse, looking for the
+two named failure modes — **inversion** and **dropped qualifiers** — rather than
+a general impression. If 3.3B doesn't move those, it isn't worth 6.6 GB and the
+extra latency. Record the verdict in `config.py` next to `MT_LOCATION`, the way
+this project records every other measurement.
+
+---
 
 ## Honest limitation
 

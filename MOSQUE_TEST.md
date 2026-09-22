@@ -112,54 +112,60 @@ debug in front of an audience — note what happened and look at it afterwards.
 
 ---
 
-## Optional: the GPU version (better Arabic, more setup)
+## Optional: the GPU version (better Arabic and Hungarian)
 
 Noticeably better Arabic — on the same recording it caught proper names and kept
-a negation that the offline model reversed. But it needs **reliable internet at
-the mosque** plus a rented GPU, so do not attempt it live unless you have
-rehearsed it end to end.
+a negation that the offline model reversed. It needs **reliable internet at the
+mosque** and costs a few dollars a month. Rehearse it once before relying on it.
 
-**Prepare the night before, not on the day.** Build the models onto a RunPod
-network volume, then terminate the pod; the volume costs about $0.12 a night and
-turns the morning's setup from forty minutes into three. Full instructions in
-`server/README.md`.
+### Set it up once (not on a Friday)
 
-### On the morning
+Someone technical does this part, once. Full instructions in `server/README.md`:
 
-1. **Create a pod** in the same datacenter as your volume, attach the volume at
-   `/workspace`, and expose port **8756** as an **HTTP port**.
-2. **Set it up and start it** in the pod's web terminal:
-   ```
-   bash /workspace/bootstrap.sh              # a no-op on a prepared volume
-   tmux new -s whisper
-   bash /workspace/start_whisper.sh <your-token>
-   ```
-   Use `tmux` — a pod has no systemd, so closing the terminal tab kills the
-   server. Detach with `ctrl-b` then `d`.
-3. **Point the laptop at it.** Put the pod's URL on one line in `pod_url.txt`
-   next to `run.bat`:
-   ```
-   https://<POD_ID>-8756.proxy.runpod.net
-   ```
-   The token goes in the environment once, not in a file:
-   `setx WHISPER_SERVER_TOKEN "<the token>"`, then reopen the terminal.
-4. **Check it before anyone arrives.** Double-click **`check_gpu.bat`**. It says
-   in plain words whether Friday will run on the GPU. Expect:
-   ```
-   OK   server is up: large-v3 on cuda
-   OK   the token is accepted
-   OK   translation on the GPU: nllb-1.3b-ct2
-   READY.
-   ```
-   Anything else is explained on screen. Do this **before** the congregation
-   arrives — once `run.bat` is fullscreen you cannot see the console.
-5. Then `run.bat` as usual. F1/F2 work exactly the same.
+1. Create a **network volume** in a European datacenter and build the models
+   onto it. Do the build on a cheap **CPU** pod — it needs no GPU, and the
+   translation model needs more RAM to convert than a GPU pod usually has.
+2. Put three values in `config.py`: `RUNPOD_NETWORK_VOLUME_ID`,
+   `RUNPOD_DATACENTER_ID`, and the list of cards you are willing to rent.
+3. On the mosque laptop, once:
+   `setx RUNPOD_API_KEY "<your RunPod key>"` — then close the terminal.
 
-If the server is unreachable the program says so and **automatically uses the
-offline models instead** — F1/F2 keep working, so a network failure degrades
-quality rather than stopping the demonstration. Worth seeing that happen once,
-deliberately, before you rely on it.
+### Then, every Friday
 
-**Afterwards, terminate the pod** or it keeps billing (~$0.17/hour). On RunPod,
-*stopping* a pod still charges for its disk — terminate it and keep only the
-network volume.
+**Double-click `START.bat`.** That is the whole procedure.
+
+It shows a window with six lines and ticks them off: it rents a GPU, waits for
+the machine, waits for the models to load, checks the connection, and then the
+subtitles appear. Expect **four to six minutes**, so start it before the
+congregation arrives — not as the imam stands up.
+
+There is nothing to type. No pod to create, no token to copy, no URL to paste.
+
+**When you close the subtitle window, the GPU is given back automatically** and
+the billing stops. You will see "GPU released" in the small black window.
+
+### If it doesn't work
+
+The window will say what went wrong and offer two buttons. Press
+**"Folytatás GPU nélkül / Continue without the GPU"** — the subtitles still
+work, using this laptop, exactly as they do offline. F1/F2 behave the same.
+
+Do not try to fix it in front of the congregation. Note what it said and look
+afterwards.
+
+### Making sure you are not paying for a GPU
+
+Three things stop the rented machine, so a forgotten one is not a disaster:
+
+1. Closing the subtitle window gives it back.
+2. The machine terminates **itself** a few hours after starting, even if this
+   laptop is switched off or loses power.
+3. The next `START.bat` cleans up anything left behind.
+
+If you want to stop it **right now** — the laptop crashed, or you closed the lid
+— double-click **`STOP.bat`**. It is safe to run at any time and tells you
+plainly whether anything was rented.
+
+> `run.bat` still works and still reads `pod_url.txt`, for the case where you
+> have started a server by hand. `check_gpu.bat` checks such a server. Neither
+> is needed for the one-click procedure above.
