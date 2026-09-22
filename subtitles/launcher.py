@@ -350,6 +350,104 @@ class LauncherWindow:
         return self.outcome
 
 
+# --- self-test -----------------------------------------------------------
+
+
+def selftest() -> int:
+    """Rent the GPU, prove it works, release it — without the subtitle app.
+
+    Everything START.bat does except show subtitles: create the pod, wait for
+    it, wait for the models, check the token round-trips, report what is
+    loaded, terminate. It exists so the GPU half can be rehearsed from any
+    machine, including a Linux dev box with no microphone, sounddevice or
+    faster-whisper installed — and so the first time the pod is exercised is
+    not the morning of a khutbah.
+
+    It ALWAYS terminates the pod, including on Ctrl-C.
+    """
+    import urllib.request
+
+    stop = threading.Event()
+    t0 = time.time()
+
+    def progress(index, note):
+        hu, en = STEPS[index]
+        mark = "OK" if note else ".."
+        line = f"  [{mark}] {en}"
+        if note:
+            line += f"  —  {note}"
+        print(f"{line}   ({time.time() - t0:.0f}s)", flush=True)
+
+    print("GPU self-test — this rents a real GPU and will bill for a few minutes.")
+    print("=" * 70)
+    try:
+        url, token, health = _bring_up(progress, stop)
+    except KeyboardInterrupt:
+        print("\ninterrupted")
+        _release()
+        return 130
+    except (Cancelled, pod.PodError) as exc:
+        print(f"\nFAILED: {exc}")
+        _release()
+        return 1
+    except Exception as exc:                    # noqa: BLE001
+        print(f"\nFAILED: {type(exc).__name__}: {exc}")
+        _release()
+        return 1
+
+    print("=" * 70)
+    print(f"  url             : {url}")
+    for k in ("model", "device", "compute_type", "gpu", "vram_gb",
+              "beam", "translate", "translate_model", "translate_compute_type",
+              "translate_beam", "deadline"):
+        if k in health:
+            print(f"  {k:16}: {health[k]}")
+
+    problems = []
+    if health.get("device") != "cuda":
+        problems.append(f"running on {health.get('device')!r}, not a GPU")
+    if health.get("model") not in ("large-v3", "large-v2"):
+        problems.append(f"model is {health.get('model')!r}, not large-v3")
+    if not health.get("translate"):
+        problems.append("translation is disabled on the server")
+    if not health.get("deadline"):
+        problems.append("no automatic shutdown is armed — a forgotten pod "
+                        "would bill until someone noticed")
+
+    # Translation is the half the health check cannot vouch for: a server can
+    # report a model loaded and still return nonsense. Send one real line.
+    if health.get("translate"):
+        try:
+            req = urllib.request.Request(
+                f"{url}/translate",
+                data="أيها الناس اتقوا الله".encode("utf-8"),
+                method="POST",
+                headers={"Authorization": f"Bearer {token}",
+                         "Content-Type": "text/plain; charset=utf-8",
+                         "X-Src-Lang": "ar",
+                         "User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                hu = (json.loads(resp.read().decode("utf-8")).get("text") or "").strip()
+            print(f"\n  AR -> HU        : {hu!r}")
+            if not hu:
+                problems.append("translation returned nothing")
+        except Exception as exc:                # noqa: BLE001
+            problems.append(f"translation failed: {type(exc).__name__}: {exc}")
+
+    print()
+    for p in problems:
+        print(f"  PROBLEM: {p}")
+    print()
+    _release()
+
+    if problems:
+        print("\nNOT READY — see above.")
+        return 1
+    print(f"\nREADY. Whole cycle took {time.time() - t0:.0f}s.")
+    print("If that Hungarian above is sane, the GPU path works end to end.")
+    return 0
+
+
 # --- entry point ---------------------------------------------------------
 
 
@@ -441,4 +539,6 @@ def _release():
 if __name__ == "__main__":
     import sys
 
+    if "--selftest" in sys.argv:
+        sys.exit(selftest())
     sys.exit(main())
