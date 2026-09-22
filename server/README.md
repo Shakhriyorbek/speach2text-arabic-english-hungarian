@@ -85,12 +85,19 @@ laptop's models mid-sentence.
 
 ### What it costs
 
-| | $/month |
-|---|---|
-| RTX 4090 Secure, ~12 h/month | 8.28 |
-| 80 GB network volume @ $0.07/GB | 5.60 |
-| One CPU pod to build the models (once, ever) | ~0.20 |
-| **Total** | **~$14** |
+| | $/month | bills when |
+|---|---|---|
+| RTX 4090 Secure, ~12 h/month @ $0.69/h | 8.28 | only while a pod exists |
+| 25 GB network volume @ $0.07/GB | 1.75 | **always, 24/7** |
+| One CPU pod to build the models | ~0.20 | once, ever |
+| **Total** | **~$10** | |
+
+On RunPod Community instead of Secure the card is ~$0.34/h, which brings it to
+about **$5.80/month** — at the cost of the availability risk described above.
+With the 3.3B and a 60 GB volume it is about **$13**.
+
+You buy no hardware. This is prepaid credit, and the only standing charge is
+the volume: about **$1.75 a month whether or not there is a khutbah**.
 
 The number that dwarfs all of these is a pod nobody stopped: $0.69 × 730 hours
 is about **$500 a month**. See *Cost discipline* below — three separate
@@ -104,21 +111,27 @@ Do this **once**, weeks before you need it, and never on a Friday.
 
 ### 1. Create the network volume
 
-RunPod → Storage → Network Volume. **80 GB**, in a **European** datacenter that
-stocks more than one 24 GB card. Volumes **grow but never shrink**, and the
-datacenter cannot be changed afterwards, so both of those are decided now.
+RunPod → Storage → Network Volume, in a **European** datacenter that stocks more
+than one 24 GB card. The datacenter cannot be changed afterwards, so choose it
+carefully; the **size can be increased later but never decreased**, so start at
+what you need now rather than what you might need.
 
-Why 80 GB when steady state is ~15 GB:
+**Start at 25 GB** ($1.75/month). That is the NLLB-1.3B setup, which is what you
+should run first — the 3.3B is gated on the A/B in *Choosing the translation
+model*, and it may well lose.
 
 | | GB |
 |---|---|
 | Whisper `large-v3` cache | 3.1 |
-| NLLB-3.3B, raw download (deleted after conversion) | 17.6 |
-| NLLB-3.3B converted | 6.6 |
-| NLLB-1.3B converted (keep it — the A/B baseline) | 2.7 |
+| NLLB-1.3B raw download (deleted after conversion) | 5.5 |
+| NLLB-1.3B converted | 2.7 |
 | `wbench` venv | 2.5 |
-| **peak, during the one-time build** | **~32.5** |
-| **steady state** | **~15** |
+| **peak, during the one-time build** | **~14** |
+| **steady state** | **~8.5** |
+
+**Only if the A/B favours the 3.3B**, expand to 60 GB ($4.20/month) first — that
+model is a 17.6 GB download plus 6.6 GB converted, so the build peaks around
+32 GB with the 1.3B kept alongside as a baseline.
 
 ### 2. Build the models on a CPU pod
 

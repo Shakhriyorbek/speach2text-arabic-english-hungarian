@@ -6,7 +6,7 @@ open-source software and **runs fully offline** — nothing to pay for, no
 internet needed during the sermon.
 
 There is also an optional **GPU mode** that rents a graphics card by the hour
-for noticeably better Arabic (about $14/month, one double-click on the day). It
+for noticeably better Arabic (about $10/month, one double-click on the day). It
 falls back to the offline models by itself whenever it cannot reach the GPU, so
 the offline path above is always the floor, never a separate program.
 
@@ -107,8 +107,9 @@ and start it before the congregation arrives.
 If anything fails it offers to carry on using this laptop's own models, so a
 network problem costs accuracy rather than the whole screen.
 
-About **$14 a month** for a weekly khutbah: a 24 GB card for the hour or two it
-is up, plus the network volume that holds the models. A pod nobody stopped would
+About **$10 a month** for a weekly khutbah: a 24 GB card for the hour or two it
+is up, plus the network volume that holds the models. You buy no hardware — it
+is rented by the second and paid from prepaid credit. A pod nobody stopped would
 be ~$500, so three separate mechanisms terminate it — see `server/README.md`,
 which has the full runbook.
 

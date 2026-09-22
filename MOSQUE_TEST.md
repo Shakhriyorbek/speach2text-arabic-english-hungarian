@@ -116,7 +116,7 @@ debug in front of an audience — note what happened and look at it afterwards.
 
 Noticeably better Arabic — on the same recording it caught proper names and kept
 a negation that the offline model reversed. It needs **reliable internet at the
-mosque** and costs a few dollars a month. Rehearse it once before relying on it.
+mosque** and costs about **$10 a month** — rented, not bought. Rehearse it once before relying on it.
 
 ### Set it up once (not on a Friday)
 
