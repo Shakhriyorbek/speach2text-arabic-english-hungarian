@@ -460,9 +460,14 @@ hour or two it is up, plus the storage that holds the models.
 New versions fix real things — several of the bugs in this guide were found the
 hard way. Updating is safe:
 
-**With git:** `git pull`
+**Double-click `UPDATE.bat`.** It downloads the current version and copies it
+in. Under a minute, and it needs no git.
 
-**With a ZIP:** unzip it over the folder and say yes to replacing files.
+*(Or by hand: `git pull`, or unzip over the folder replacing files.)*
+
+**If a pod is running, restart it** — close the subtitle window and run
+`START.bat` again. The GPU fetches its own copy of the server files when it
+starts, so it only picks up changes on a fresh pod.
 
 Neither touches `venv\`, `models\` or `config_local.py` — the first two are not
 in the download at all, and the third is yours. So **your 3 GB of models and
@@ -500,6 +505,7 @@ The one thing to know: if you edited `config.py` directly instead of using
 config.py          every setting, in one file. Replaced on update — do not edit
 config_local.py    your settings for THIS laptop. Overrides config.py, survives updates
 install.bat        one-time setup (this guide, step 3)
+UPDATE.bat         fetch the latest version, keeping your settings and models
 CHECK_MIC.bat      is the microphone carrying sound? live level meter
 CHECK_SETUP.bat    is the GPU account set up? free, rents nothing
 START.bat          rent a GPU and show subtitles          <- the normal one
