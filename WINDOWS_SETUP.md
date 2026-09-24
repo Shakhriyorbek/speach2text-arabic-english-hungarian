@@ -124,8 +124,17 @@ start on a number that is not there — so you will know either way.
 CHECK_MIC.bat
 ```
 
-It watches the input in `config.py` and draws a level bar while you speak. Bars
-should move and peak around **-12 dBFS**.
+It watches the input in `config_local.py` and draws a level bar while you
+speak. Bars should move and peak around **-12 dBFS**.
+
+**Windows lists the same microphone several times** — once per audio subsystem
+(MME, DirectSound, WASAPI, WDM-KS). They are not interchangeable: the
+**WDM-KS** copy cannot be recorded from by this program at all, and fails with
+`Blocking API not supported yet` / `error -9999`. The name is identical to the
+usable ones, so it is an easy one to pick by accident.
+
+**Prefer the WASAPI entry.** `--list` marks the unusable ones, and testing one
+prints the alternatives for the same microphone.
 
 If it reports `NOTHING IS ARRIVING`, the computer can see the input but no
 sound is reaching it, and the tool lists what to check in order. With a **USB
@@ -387,6 +396,7 @@ The one thing to know: if you edited `config.py` directly instead of using
 | Window opens, no subtitles ever | Run **`CHECK_MIC.bat`**. Wrong microphone, no phantom power, or F1/F2 not pressed. |
 | `CHECK_MIC.bat` says nothing is arriving | Condenser mic with **+48V off** is the usual cause; then gain, then the XLR cable. |
 | Works on another computer, silent on Windows | Device selection or permissions, not hardware — see *When Windows itself hears nothing*. |
+| `Blocking API not supported yet` / `error -9999` | You picked the **WDM-KS** copy of the microphone. Use the WASAPI one. |
 | `RUNPOD_API_KEY is not set` | You did not reopen Command Prompt after `setx`. |
 | `No GPU is free ... on either tier` | RunPod has nothing free in our datacenter. Carry on without the GPU; try again later. |
 | Subtitles suddenly get worse mid-khutbah | The GPU dropped out and the laptop took over. This is the designed fallback, not a fault. Carry on. |

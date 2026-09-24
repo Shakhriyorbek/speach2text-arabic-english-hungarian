@@ -48,6 +48,54 @@ def dbfs(block: np.ndarray) -> float:
     return 20.0 * math.log10(peak)
 
 
+# Windows exposes the SAME physical microphone once per audio subsystem, so a
+# single USB interface shows up four times. They are not equivalent:
+#
+#   MME          oldest, highest latency, works everywhere
+#   DirectSound  fine
+#   WASAPI       modern, lowest latency — the one to prefer
+#   WDM-KS       kernel streaming. PortAudio cannot do a BLOCKING read on it,
+#                which is what this program does, so it fails at open with
+#                "Blocking API not supported yet [PaErrorCode -9999]".
+#
+# Picking the WDM-KS copy is an easy mistake — it is often last in the list and
+# the name looks identical to the others.
+UNUSABLE_APIS = ("wdm-ks", "windows wdm-ks")
+PREFERRED_APIS = ("wasapi", "directsound", "mme")
+
+
+def host_api_of(dev_index):
+    try:
+        return sd.query_hostapis()[sd.query_devices(dev_index)["hostapi"]]["name"]
+    except Exception:
+        return ""
+
+
+def is_unusable(api_name):
+    a = (api_name or "").lower()
+    return any(bad in a for bad in UNUSABLE_APIS)
+
+
+def suggest_alternatives(device):
+    """Same microphone, on an audio subsystem that actually works."""
+    try:
+        want = sd.query_devices(device)["name"].split("(")[-1].strip(" )")
+    except Exception:
+        return []
+    out = []
+    for i, d in enumerate(sd.query_devices()):
+        if i == device or d["max_input_channels"] < 1:
+            continue
+        api = host_api_of(i)
+        if is_unusable(api):
+            continue
+        if want and want.lower()[:12] in d["name"].lower():
+            rank = next((n for n, p in enumerate(PREFERRED_APIS)
+                         if p in api.lower()), len(PREFERRED_APIS))
+            out.append((rank, i, d["name"], api))
+    return [(i, n, a) for _, i, n, a in sorted(out)]
+
+
 def list_devices():
     print("Input devices on this computer")
     print("=" * 72)
@@ -64,11 +112,17 @@ def list_devices():
         except Exception:
             pass
         mark = " <- config.MIC_DEVICE" if i == config.MIC_DEVICE else ""
+        if is_unusable(api):
+            mark += "  (UNUSABLE: kernel streaming)"
         print(f"  [{i:2}] {d['name'][:44]:44} {d['max_input_channels']}ch "
               f"{int(d['default_samplerate'])}Hz  {api[:12]}{mark}")
     print("=" * 72)
     print("A USB audio interface usually appears under a GENERIC name such as")
     print('"USB Audio CODEC" or "Line (2- USB Audio CODEC)" — not its brand.')
+    print()
+    print("The SAME microphone appears once per Windows audio system. Prefer a")
+    print("WASAPI one; anything marked UNUSABLE cannot be recorded from by this")
+    print("program, whatever its name says.")
     print()
     print("Put the number in config.py as MIC_DEVICE, then run:")
     print("    venv\\Scripts\\python -m subtitles.miccheck")
@@ -82,9 +136,26 @@ def test(device, seconds):
         print("      Run this with no arguments to list what is available.")
         return 1
 
-    print(f"Testing [{device}] {info['name']}")
+    api = host_api_of(device)
+    print(f"Testing [{device}] {info['name']}   ({api})")
     print(f"  channels {info['max_input_channels']}, "
           f"device default {int(info['default_samplerate'])} Hz")
+
+    if is_unusable(api):
+        print()
+        print(f"  FAIL this is the {api} copy of that microphone, and this")
+        print( "       program cannot record from it — kernel streaming does not")
+        print( "       support the kind of read it does. The microphone is fine;")
+        print( "       the entry is the wrong one.")
+        alts = suggest_alternatives(device)
+        if alts:
+            print()
+            print("       Use one of these instead — same microphone:")
+            for i, name, a in alts:
+                print(f"         MIC_DEVICE = {i:<3}  {name[:40]:40} ({a})")
+            print()
+            print(f"       Put it in config_local.py, then run this again.")
+        return 1
 
     # The app asks for 16 kHz mono because Whisper and the VAD both require it.
     # A USB interface often runs natively at 44.1/48 kHz, and whether Windows

@@ -107,15 +107,31 @@ class UtteranceChunker:
                 f"uses the Windows default input."
             ) from exc
 
-        self._stream = sd.InputStream(
-            samplerate=config.SAMPLE_RATE,
-            channels=1,
-            dtype="int16",
-            blocksize=self._frame_len,          # deliver exactly one VAD frame
-            device=config.MIC_DEVICE,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.InputStream(
+                samplerate=config.SAMPLE_RATE,
+                channels=1,
+                dtype="int16",
+                blocksize=self._frame_len,      # deliver exactly one VAD frame
+                device=config.MIC_DEVICE,
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+        except Exception as exc:
+            # Windows lists the same microphone once per audio subsystem, and
+            # the WDM-KS (kernel streaming) copy cannot be recorded from this
+            # way — PortAudio reports it as an "Unanticipated host error
+            # -9999", which tells an operator nothing. It is also an easy one
+            # to pick: the name is identical to the usable copies.
+            raise RuntimeError(
+                f"Could not open microphone [{config.MIC_DEVICE}] "
+                f"({type(exc).__name__}: {exc}).\n"
+                f"If that mentions WDM-KS or error -9999, this is the wrong "
+                f"COPY of the right microphone — Windows lists each one several "
+                f"times. Run:\n"
+                f"    venv\\Scripts\\python -m subtitles.miccheck --list\n"
+                f"and pick the WASAPI entry, then put it in config_local.py."
+            ) from exc
         self._worker = threading.Thread(
             target=self._process_loop, name="vad-worker", daemon=True
         )
