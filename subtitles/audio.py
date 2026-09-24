@@ -88,6 +88,25 @@ class UtteranceChunker:
     def start(self):
         """Open the microphone stream and start the VAD worker thread."""
         self._running.set()
+
+        # Say which microphone this actually is. MIC_DEVICE is a number, and a
+        # number that meant "the built-in array mic" on one laptop means
+        # something else entirely on another — or nothing, if a device was
+        # unplugged. The failure is silent: the app runs, the VAD sees no
+        # speech, and the screen simply stays empty. One line here turns that
+        # into an obvious wrong answer.
+        try:
+            dev = sd.query_devices(config.MIC_DEVICE, "input")
+            print(f"Microphone: [{config.MIC_DEVICE}] {dev['name']}", flush=True)
+        except Exception as exc:
+            raise RuntimeError(
+                f"MIC_DEVICE = {config.MIC_DEVICE!r} in config.py is not a "
+                f"usable input device on this machine ({exc}).\n"
+                f"List the devices with:  venv\\Scripts\\python -m sounddevice\n"
+                f"then put the right number in config.py. MIC_DEVICE = None "
+                f"uses the Windows default input."
+            ) from exc
+
         self._stream = sd.InputStream(
             samplerate=config.SAMPLE_RATE,
             channels=1,
