@@ -175,6 +175,10 @@ for, in the order they appear below:
 | Microphone access | **Accès au microphone** |
 | Let apps access your microphone | **Autoriser les applications à accéder à votre microphone** |
 | Let desktop apps access your microphone | **Autoriser les applications de bureau à accéder à votre microphone** |
+| Privacy *(Windows 10)* | **Confidentialité** |
+| Privacy & security *(Windows 11)* | **Confidentialité et sécurité** |
+| Change *(the button on Win 10)* | **Modifier** |
+| Allow desktop apps to access your microphone | **Autoriser les applications de bureau à accéder à votre microphone** |
 | Recording *(tab in `mmsys.cpl`)* | **Enregistrement** |
 | Show Disabled Devices | **Afficher les périphériques désactivés** |
 | Enable | **Activer** |
@@ -204,8 +208,14 @@ volume bar on that page. That bar bypasses every app permission, so:
   `+48V`, the gain knob, and the XLR cable. If it works on another computer,
   it is not the microphone.
 
-**Settings → Privacy & security → Microphone.** Three separate switches, and
-they are not the same one:
+**Privacy settings.** Press `⊞ Win + I`, then:
+
+| | Path |
+|---|---|
+| **Windows 10** | **Confidentialité** → **Microphone** |
+| **Windows 11** | **Confidentialité et sécurité** → **Microphone** |
+
+Three separate switches, and they are not the same one:
 
 | Switch | Governs |
 |---|---|
@@ -221,6 +231,13 @@ explicitly when it sees it.
 
 Voice Recorder failing while this program works, or the reverse, is normal —
 they are governed by different switches. Turn all three on.
+
+**On Windows 10 the third switch is at the very bottom of that page**, below a
+long scrolling list of individual Store apps. People reach the app list, assume
+that is the whole page, and never see it. Scroll to the end.
+
+Windows 10 also hides the first switch behind a **Modifier** (*Change*) button
+at the top, rather than showing it as a plain toggle.
 
 **Windows may list the interface twice.** A `Microphone (USB Audio CODEC)` and
 a `Line (USB Audio CODEC)` can both exist; only one carries the XLR input. If
