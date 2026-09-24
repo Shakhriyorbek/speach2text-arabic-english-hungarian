@@ -111,9 +111,47 @@ MAX_BODY_BYTES = 16 * 1024 * 1024   # ~8 minutes of 16 kHz int16; refuse beyond.
 # exactly like the local one and the two stay comparable.
 REPETITION_PENALTY = 1.15
 NO_REPEAT_NGRAM = 3
-COMPRESSION_RATIO_MAX = 2.4
-LOGPROB_MIN = -1.0
-NO_SPEECH_MAX = 0.6
+COMPRESSION_RATIO_MAX = float(os.environ.get("COMPRESSION_RATIO_MAX", "2.4"))
+NO_SPEECH_MAX = float(os.environ.get("NO_SPEECH_MAX", "0.6"))
+
+# How unsure Whisper may be before we throw a line away.
+#
+# This was -1.0 and it was the wrong number for a khutbah. avg_logprob is an
+# average over the segment, and the words that carry a sermon — a scholar's
+# name, a book, a companion, an honorific — are precisely the rare tokens
+# Whisper is least certain of. A short utterance that is MOSTLY a name scores
+# worst of all, so the guard was discarding the most valuable lines and keeping
+# the filler. Reported from a live test: "it drops when I speak the scholars'
+# names and their books and the sahaba names and the titles of prophets."
+#
+# -1.35 keeps the guard useful against genuine garbage while letting an
+# uncertain name through. See also KEEP_KNOWN_NAMES below, which is the more
+# precise half of the answer.
+LOGPROB_MIN = float(os.environ.get("LOGPROB_MIN", "-1.35"))
+
+# A segment containing a name we recognise is kept whatever its confidence.
+# Recognising it is strong evidence of real speech: hallucinations are canned
+# filler, not "سنن الترمذي". names.py is deployed next to this file precisely
+# so the two ends agree on what a name is.
+KEEP_KNOWN_NAMES = os.environ.get("KEEP_KNOWN_NAMES", "1") == "1"
+
+_known_names = None
+
+
+def known_name_in(text):
+    """Does this text contain a name from names.py? (Never raises.)"""
+    global _known_names
+    if not KEEP_KNOWN_NAMES or not text:
+        return False
+    if _known_names is None:
+        try:
+            from names import NAME_MAP, DIVINE_NAMES
+            _known_names = tuple(NAME_MAP) + tuple(DIVINE_NAMES)
+        except Exception as exc:                # noqa: BLE001
+            print(f"[names] not available, confidence guard unassisted: {exc}",
+                  flush=True)
+            _known_names = ()
+    return any(n and n in text for n in _known_names)
 
 _model = None
 _translator = None
@@ -242,20 +280,33 @@ def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate", prompt: str =
         # this exclusive.
         segments = list(segments)
 
-    kept, dropped = [], 0
+    kept, dropped, why = [], 0, []
     for s in segments:
+        piece = (s.text or "").strip()
+        reason = None
         if (s.no_speech_prob or 0) > NO_SPEECH_MAX:
-            dropped += 1
+            reason = f"no_speech {s.no_speech_prob:.2f}"
         elif (s.compression_ratio or 0) > COMPRESSION_RATIO_MAX:
-            dropped += 1
+            reason = f"repetitive {s.compression_ratio:.2f}"
         elif (s.avg_logprob or 0) < LOGPROB_MIN:
+            # Unless we recognise a name in it — see KEEP_KNOWN_NAMES.
+            if known_name_in(piece):
+                print(f"  [kept despite logprob {s.avg_logprob:.2f}] {piece[:60]}",
+                      flush=True)
+            else:
+                reason = f"unsure {s.avg_logprob:.2f}"
+
+        if reason:
             dropped += 1
-        else:
-            piece = s.text.strip()
+            # Say WHAT was thrown away, not just how many. A count cannot tell
+            # you that the system is eating the names.
             if piece:
-                kept.append(piece)
+                why.append({"reason": reason, "text": piece})
+                print(f"  [dropped: {reason}] {piece[:60]}", flush=True)
+        elif piece:
+            kept.append(piece)
     lang = "ar" if mode == "part1" else (getattr(info, "language", None) or "ar")
-    return " ".join(kept).strip(), dropped, lang
+    return " ".join(kept).strip(), dropped, lang, why
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -399,7 +450,8 @@ class Handler(BaseHTTPRequestHandler):
 
         t0 = time.time()
         try:
-            text, dropped, lang = transcribe_pcm(pcm, mode, task, prompt, is_partial)
+            text, dropped, lang, why = transcribe_pcm(pcm, mode, task, prompt,
+                                                      is_partial)
         except Exception as exc:                    # never let one chunk kill it
             print(f"[error] {type(exc).__name__}: {exc}", flush=True)
             self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
@@ -413,7 +465,8 @@ class Handler(BaseHTTPRequestHandler):
         if not is_partial:          # snapshots are drafts; keep only finals
             _recent.append({"t": time.strftime("%H:%M:%S"), "op": "asr",
                             "mode": mode, "lang": lang, "secs": round(secs, 1),
-                            "ms": ms, "dropped": dropped, "text": text})
+                            "ms": ms, "dropped": dropped, "text": text,
+                            "why": why})
         self._json(200, {"text": text, "ms": ms, "dropped": dropped, "language": lang})
 
     def log_message(self, fmt, *args):

@@ -27,7 +27,7 @@ import urllib.request
 import numpy as np
 
 import config
-from subtitles.asr import is_hallucination, normalize
+from subtitles.asr import is_hallucination, is_repeatable, normalize
 from subtitles.http_client import USER_AGENT, KeepAliveClient
 
 
@@ -140,8 +140,12 @@ class RemoteTranscriber:
         if is_partial:
             return text
 
-        # An exact repeat of the previous line is a decoding loop, not speech.
-        if normalize(text) and normalize(text) == normalize(self._last_text):
+        # An exact repeat of the previous line is usually a decoding loop —
+        # but not when it is a formula a khatib repeats on purpose. Suppressing
+        # "صلى الله عليه وسلم" because it was also the last line is a
+        # congregation-visible omission, and it happens constantly.
+        if (normalize(text) and normalize(text) == normalize(self._last_text)
+                and not is_repeatable(text)):
             return ""
         self._last_text = text
         return text

@@ -122,6 +122,87 @@ NAME_MAP = {
     "أبو لؤلؤة": "Abu Lulua",
     "المجوسي": "a zoroasztriánus",
 
+    # --- the prophets, by their Arabic names ---
+    # NLLB renders these as ordinary Hungarian Bible names or, worse, as their
+    # literal meanings. A congregation expects the Arabic forms.
+    "محمد": "Mohamed",
+    "إبراهيم": "Ibráhím",
+    "موسى": "Múszá",
+    "عيسى": "Ísza",
+    "نوح": "Núh",
+    "يوسف": "Júszuf",
+    "يعقوب": "Jakúb",
+    "إسماعيل": "Iszmáíl",
+    "إسحاق": "Iszhák",
+    "داوود": "Dávúd",
+    "سليمان": "Szulejmán",
+    "يونس": "Júnusz",
+    "أيوب": "Ajjúb",
+    "زكريا": "Zakarijjá",
+    "يحيى": "Jahjá",
+    "هارون": "Hárún",
+    "لوط": "Lút",
+    "آدم": "Ádám",
+    "جبريل": "Dzsibríl",
+
+    # --- the hadith collectors ---
+    # These are the single most common thing a khatib names, and Whisper is
+    # least sure of them: reported live as "it drops when I speak the scholars'
+    # names and their books".
+    "البخاري": "al-Buhári",
+    "مسلم": "Muszlim",
+    "الترمذي": "at-Tirmidzi",
+    "أبو داود": "Abu Dávúd",
+    "أبي داود": "Abu Dávúd",
+    "النسائي": "an-Naszái",
+    "ابن ماجه": "Ibn Mádzsa",
+    "أحمد بن حنبل": "Ahmad ibn Hanbal",
+    "الإمام أحمد": "Ahmad imám",
+    "الدارمي": "ad-Dárimi",
+    "البيهقي": "al-Bajháki",
+    "الطبراني": "at-Tabaráni",
+    "الحاكم": "al-Hákim",
+
+    # --- their books ---
+    "صحيح البخاري": "Szahíh al-Buhári",
+    "صحيح مسلم": "Szahíh Muszlim",
+    "سنن الترمذي": "Szunan at-Tirmidzi",
+    "سنن أبي داود": "Szunan Abi Dávúd",
+    "سنن النسائي": "Szunan an-Naszái",
+    "سنن ابن ماجه": "Szunan Ibn Mádzsa",
+    "مسند أحمد": "Muszand Ahmad",
+    "الموطأ": "al-Muvatta",
+    "رياض الصالحين": "Rijád asz-Szálihín",
+
+    # --- the jurists and later scholars ---
+    "أبو حنيفة": "Abu Hanífa",
+    "الإمام الشافعي": "asz-Sáfii imám",
+    "الشافعي": "asz-Sáfii",
+    "الإمام مالك": "Málik imám",
+    "ابن تيمية": "Ibn Tajmijja",
+    "ابن القيم": "Ibn al-Kajjim",
+    "ابن كثير": "Ibn Kaszír",
+    "النووي": "an-Navavi",
+    "الغزالي": "al-Gazáli",
+    "ابن حجر": "Ibn Hadzsar",
+    "الألباني": "al-Albáni",
+    "ابن رجب": "Ibn Radzsab",
+    "ابن الجوزي": "Ibn al-Dzsauzi",
+
+    # --- honorifics, which are formulas rather than names ---
+    # Left as recognisable Hungarian rather than transliterated Arabic: their
+    # meaning is the point, and they occur several times a minute.
+    "صلى الله عليه وسلم": "Allah áldja meg és adjon neki békét",
+    "رضي الله عنه": "Allah legyen elégedett vele",
+    "رضي الله عنها": "Allah legyen elégedett vele",
+    "رضي الله عنهم": "Allah legyen elégedett velük",
+    "رضي الله عنهما": "Allah legyen elégedett velük",
+    "عليه السلام": "béke legyen vele",
+    "عليها السلام": "béke legyen vele",
+    "عليهم السلام": "béke legyen velük",
+    "رحمه الله": "Allah irgalmazzon neki",
+    "رحمها الله": "Allah irgalmazzon neki",
+
     # Whisper mishears المجوسي as these, identically, every time — three
     # occurrences in one sermon, which NLLB then rendered "the councillor",
     # "the sitting one" and "the table". Correcting the known mishearing here is
@@ -395,6 +476,53 @@ def substitute_divine(text: str, chain_open: bool = False):
     return " ".join(out), in_chain
 
 
+# ---------------------------------------------------------------------------
+# What to call God in Hungarian
+# ---------------------------------------------------------------------------
+# An EDITORIAL choice, not a technical one, and it belongs to the community
+# rather than to the translation model. Left to NLLB, "الله" comes out as
+# "Isten" — the ordinary Hungarian word for God, which is correct Hungarian and
+# is not what this congregation asked for. Hungarian Muslim usage is commonly
+# "Allah", untransliterated.
+#
+# Set to "" to stop substituting and let the model decide again.
+#
+# Only the standalone forms are replaced, and only AFTER the divine-name chain
+# has run — that logic anchors on the literal "الله", so substituting it any
+# earlier would stop "بسم الله الرحمن الرحيم" being recognised at all.
+# Hungarian case endings are left to NLLB, which attaches them correctly to a
+# Latin-script name ("Allahnak", "Allahot"); see the note above about
+# placeholders surviving translation intact.
+ALLAH_HU = "Allah"
+
+_ALLAH_FORMS = {
+    "اللهم": "Ó {a}",          # vocative: "O Allah"
+    "لله": "{a}nak",            # "to Allah" — الحمد لله
+    "بالله": "{a}ban",
+    "تالله": "{a}ra",           # oath
+    "الله": "{a}",
+}
+# Longest first, so "اللهم" is consumed before the "الله" inside it.
+_ALLAH_PATTERNS = [
+    (
+        re.compile(
+            re.escape(ar) + f"[{_DIACRITIC}]*" + f"(?![{_ARABIC_LETTER}])"
+        ),
+        hu,
+    )
+    for ar, hu in sorted(_ALLAH_FORMS.items(), key=lambda kv: -len(kv[0]))
+]
+
+
+def substitute_allah(text: str) -> str:
+    """Render the divine name as ALLAH_HU. Run AFTER substitute_divine()."""
+    if not ALLAH_HU or not text:
+        return text
+    for pattern, template in _ALLAH_PATTERNS:
+        text = pattern.sub(template.format(a=ALLAH_HU), text)
+    return text
+
+
 def substitute(text: str, chain_open: bool = False):
     """Replace known Arabic names with their Hungarian forms.
 
@@ -409,7 +537,9 @@ def substitute(text: str, chain_open: bool = False):
         return text, chain_open
     for pattern, hungarian in _PATTERNS:
         text = pattern.sub(hungarian, text)
-    return substitute_divine(text, chain_open)
+    text, chain_open = substitute_divine(text, chain_open)
+    # Last, because substitute_divine anchors on the literal "الله".
+    return substitute_allah(text), chain_open
 
 
 class Substituter:

@@ -76,6 +76,40 @@ def normalize(text: str) -> str:
 _normalize = normalize      # existing internal callers
 
 
+# Formulas a khatib repeats on purpose, continually, and which the repeat guard
+# must therefore never suppress. Saying "صلى الله عليه وسلم" twice in a row is
+# not a decoding loop, it is a sermon — and these are exactly the lines a
+# congregation notices missing.
+_REPEATABLE = (
+    "صلى الله عليه وسلم",       # peace be upon him
+    "عليه السلام",              # peace be upon him (prophets)
+    "عليها السلام",
+    "عليهم السلام",
+    "رضي الله عنه",             # may God be pleased with him
+    "رضي الله عنها",
+    "رضي الله عنهم",
+    "رضي الله عنهما",
+    "رحمه الله",                # may God have mercy on him
+    "رحمها الله",
+    "سبحانه وتعالى",            # glorified and exalted
+    "عز وجل",                   # mighty and majestic
+    "تبارك وتعالى",
+    "جل جلاله",
+    "الحمد لله",
+    "سبحان الله",
+    "الله أكبر",
+    "آمين",
+)
+
+
+def is_repeatable(text: str) -> bool:
+    """True when repeating this line is normal speech rather than a loop."""
+    t = normalize(text)
+    if not t:
+        return False
+    return any(normalize(f) in t for f in _REPEATABLE)
+
+
 def is_hallucination(text: str) -> bool:
     """True when `text` is a known canned phrase rather than real speech.
 
@@ -193,7 +227,7 @@ class Transcriber:
             return text
 
         # Exact repeat of the previous emitted line -> almost always a loop.
-        if norm and norm == _normalize(self._last_text):
+        if norm and norm == _normalize(self._last_text) and not is_repeatable(text):
             return ""
 
         self._last_text = text

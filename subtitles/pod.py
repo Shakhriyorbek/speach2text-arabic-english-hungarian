@@ -599,7 +599,12 @@ def recent() -> int:
             print(f"  {r['t']}  ASR  {r['secs']:>4}s audio -> {r['ms']:>5}ms  "
                   f"[{r['mode']}/{r['lang']}]"
                   + (f"  dropped {r['dropped']}" if r.get("dropped") else ""))
-            print(f"            {r['text'][:66]}")
+            if r.get("text"):
+                print(f"            {r['text'][:66]}")
+            # WHAT was dropped matters more than how many. This is how you see
+            # the system eating the names rather than eating silence.
+            for d in (r.get("why") or []):
+                print(f"            [dropped: {d['reason']}] {d['text'][:52]}")
         else:
             print(f"  {r['t']}  MT   {r['ms']:>5}ms  [{r.get('src')}]")
             print(f"            {r['text'][:66]}")
