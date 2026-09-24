@@ -170,11 +170,30 @@ permissions:
   gain knob, the XLR cable — and check **Propriétés → Niveaux** is not 0.
 
 If it reports `NOTHING IS ARRIVING`, the computer can see the input but no
-sound is reaching it, and the tool lists what to check in order. With a **USB
-audio interface** (Behringer U-Phoria UM2 and similar), the overwhelmingly
-common cause is **phantom power**: a condenser microphone produces absolutely
-nothing until the **+48V** switch on the interface is on. A dynamic microphone
-does not need it.
+sound is reaching it. With a **USB audio interface** (Behringer U-Phoria UM2
+and similar) there are two classic causes, and both are on the box rather than
+in Windows:
+
+**The wrong socket.** These interfaces have two inputs and only one takes a
+microphone. On a UM2 they are labelled **MIDAS** and **INST 2**:
+
+| Socket | For |
+|---|---|
+| **MIDAS** — round 3-pin XLR | **the microphone.** Carries phantom power |
+| **INST 2** — ¼" jack | guitar or line level. No phantom power, wrong impedance for a mic |
+
+A microphone in the instrument input produces almost nothing. The labels do not
+say "microphone", so this is easy to get wrong.
+
+**Phantom power.** A condenser microphone produces absolutely nothing until the
+**+48V** switch is on — check the LED is lit, not just that the switch is
+pressed. A dynamic microphone does not need it and is unharmed by it.
+
+A useful test when nothing works: **tap the microphone body**. A tap is a large
+transient and registers even at very low gain, so it separates "no signal at
+all" from "signal too quiet". If a tap shows nothing, stop adjusting levels —
+there is no electrical path, and the next things to try are the cable and the
+socket.
 
 Also note the interface appears in the device list under a **generic** name
 like `USB Audio CODEC`, not under its brand — so do not go looking for
