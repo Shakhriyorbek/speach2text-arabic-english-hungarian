@@ -22,5 +22,11 @@ if exist "pod_url.txt" (
     for /f "usebackq delims=" %%u in ("pod_url.txt") do set "WHISPER_SERVER_URL=%%u"
 )
 
+REM This script is the LAPTOP-ONLY path: no GPU, no internet, no cost, and no
+REM token. config.py defaults to using the GPU because that is the normal way
+REM to run; START.bat is that. Saying so here means run.bat cannot fail asking
+REM for a secret that only START.bat creates.
+set "KHUTBAH_LOCAL_ONLY=1"
+
 venv\Scripts\python app.py
 if errorlevel 1 pause

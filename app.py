@@ -29,8 +29,23 @@ from subtitles.ui import SubtitleWindow
 
 def run_local():
     """Fully offline pipeline: Whisper -> English -> opus-mt -> Hungarian."""
+    import os
+
     from subtitles.audio import UtteranceChunker
     from subtitles.asr import Transcriber
+
+    # run.bat sets this. config.py ships with ASR_LOCATION = "remote" because
+    # that is the normal way to run, but run.bat exists precisely to run
+    # WITHOUT a GPU — free, offline, and with no token, which only START.bat
+    # creates. Honouring the config there made run.bat fail with a demand for
+    # a secret that the person had no way to have.
+    if os.environ.get("KHUTBAH_LOCAL_ONLY") == "1":
+        config.ASR_LOCATION = "cpu"
+        config.MT_LOCATION = "cpu"
+        # Re-transcribing the whole utterance every second is affordable on a
+        # GPU and not on this laptop's CPU. See config.py.
+        config.STREAMING_PARTIALS = False
+        print("Laptop only: no GPU, no internet needed.")
 
     direct = getattr(config, "TRANSLATION_PATH", "pivot").lower() == "direct"
 

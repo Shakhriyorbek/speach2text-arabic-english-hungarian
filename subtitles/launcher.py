@@ -559,7 +559,11 @@ def main():
     os.environ["WHISPER_SERVER_TOKEN"] = win.token
     config.REMOTE_ASR_URL = win.url
     config.REMOTE_MT_URL = win.url
+    # Set BOTH explicitly rather than leaning on the defaults in config.py:
+    # config_local.py may have forced them to "cpu" on this laptop, and the
+    # whole point of getting here is that the GPU is up and answering.
     config.ASR_LOCATION = "remote"
+    config.MT_LOCATION = "remote"
     if not win.health.get("translate"):
         # The server came up without NLLB. Say so once, here, rather than
         # letting app.py discover it and print a line nobody is looking at.
