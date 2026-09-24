@@ -69,7 +69,7 @@ if you forget entirely, the rented machine shuts itself down after a few hours.
   **`START.bat` uses the internet** for much better Arabic, and falls back to
   the offline models by itself whenever it can't.
 - The subtitles are a **live aid to understanding**, not an official translation. **Quran translations shown are approximate**, not authoritative.
-- First-time setup on a new laptop: run **`install.bat`** once (needs internet). After that, only `START.bat` (or `run.bat`) is needed.
+- First-time setup on a new laptop: see **`WINDOWS_SETUP.md`** — run **`install.bat`** once (needs internet). After that, only `START.bat` (or `run.bat`) is needed.
 
 ---
 

@@ -22,6 +22,10 @@ Satan on a projector.
 
 ---
 
+> **Setting up a new Windows laptop from scratch?** `WINDOWS_SETUP.md` is the
+> step-by-step version of everything below, including GPU mode, in the order
+> that finds problems earliest.
+
 ## One-time setup (needs internet, do this once at home)
 
 1. Install **Python 3** from <https://www.python.org/downloads/> — during
