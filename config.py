@@ -224,7 +224,7 @@ POD_BOOT_TIMEOUT_S = 900
 # neither a ?cachebust query nor github.com/.../raw/... avoided it. A commit
 # path is immutable, so it is never cached wrong. Pin the SHA while iterating;
 # use "main" once it is merged and settled.
-RUNPOD_REPO_BRANCH = "gpu-one-click"   # testing before merge; set back to "main"
+RUNPOD_REPO_BRANCH = "main"
 
 # Port the server listens on, exposed through RunPod's HTTPS proxy as
 # https://<POD_ID>-<port>.proxy.runpod.net — no firewall, no SSH tunnel.
