@@ -133,8 +133,20 @@ speak. Bars should move and peak around **-12 dBFS**.
 `Blocking API not supported yet` / `error -9999`. The name is identical to the
 usable ones, so it is an easy one to pick by accident.
 
-**Prefer the WASAPI entry.** `--list` marks the unusable ones, and testing one
-prints the alternatives for the same microphone.
+**Pick an entry with no warning beside it in `--list`.** Two different things
+rule entries out, and the tool marks both:
+
+| Marked | Why |
+|---|---|
+| `UNUSABLE: kernel streaming` | WDM-KS cannot be read the way this program reads |
+| `will not do 16000 Hz` | usually WASAPI: in shared mode it offers only the device's own rate and will not resample |
+
+In practice the **MME** or **DirectSound** entry is the one that works, because
+Windows resamples for those. The program needs 16 kHz because Whisper and the
+voice detector both require it; the interface itself runs at 44.1 or 48 kHz.
+
+Testing a bad entry prints the usable ones for the same microphone, so it is a
+number to copy rather than something to work out.
 
 If it reports `NOTHING IS ARRIVING`, the computer can see the input but no
 sound is reaching it, and the tool lists what to check in order. With a **USB
@@ -396,7 +408,8 @@ The one thing to know: if you edited `config.py` directly instead of using
 | Window opens, no subtitles ever | Run **`CHECK_MIC.bat`**. Wrong microphone, no phantom power, or F1/F2 not pressed. |
 | `CHECK_MIC.bat` says nothing is arriving | Condenser mic with **+48V off** is the usual cause; then gain, then the XLR cable. |
 | Works on another computer, silent on Windows | Device selection or permissions, not hardware — see *When Windows itself hears nothing*. |
-| `Blocking API not supported yet` / `error -9999` | You picked the **WDM-KS** copy of the microphone. Use the WASAPI one. |
+| `Blocking API not supported yet` / `error -9999` | The **WDM-KS** copy. Use the MME or DirectSound one. |
+| `Invalid sample rate` / `error -9997` | Usually the **WASAPI** copy, which will not resample. Use MME or DirectSound. |
 | `RUNPOD_API_KEY is not set` | You did not reopen Command Prompt after `setx`. |
 | `No GPU is free ... on either tier` | RunPod has nothing free in our datacenter. Carry on without the GPU; try again later. |
 | Subtitles suddenly get worse mid-khutbah | The GPU dropped out and the laptop took over. This is the designed fallback, not a fault. Carry on. |

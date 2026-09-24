@@ -96,6 +96,28 @@ def suggest_alternatives(device):
     return [(i, n, a) for _, i, n, a in sorted(out)]
 
 
+def accepts_16k(dev_index):
+    """Will this entry actually give us 16 kHz mono?
+
+    Not a formality. WASAPI in shared mode only offers the device's native
+    rate, so a 48 kHz interface refuses 16 kHz outright ("Invalid sample rate
+    [PaErrorCode -9997]"), while the MME and DirectSound entries for the SAME
+    hardware accept it because Windows resamples for them.
+    """
+    try:
+        sd.check_input_settings(device=dev_index, channels=1,
+                                samplerate=config.SAMPLE_RATE, dtype="int16")
+        return True
+    except Exception:
+        return False
+
+
+def usable_alternatives(device):
+    """Entries for the same microphone that this program can really open."""
+    return [(i, name, api) for i, name, api in suggest_alternatives(device)
+            if accepts_16k(i)]
+
+
 def list_devices():
     print("Input devices on this computer")
     print("=" * 72)
@@ -114,15 +136,19 @@ def list_devices():
         mark = " <- config.MIC_DEVICE" if i == config.MIC_DEVICE else ""
         if is_unusable(api):
             mark += "  (UNUSABLE: kernel streaming)"
+        elif not accepts_16k(i):
+            mark += f"  (will not do {config.SAMPLE_RATE} Hz)"
         print(f"  [{i:2}] {d['name'][:44]:44} {d['max_input_channels']}ch "
               f"{int(d['default_samplerate'])}Hz  {api[:12]}{mark}")
     print("=" * 72)
     print("A USB audio interface usually appears under a GENERIC name such as")
     print('"USB Audio CODEC" or "Line (2- USB Audio CODEC)" — not its brand.')
     print()
-    print("The SAME microphone appears once per Windows audio system. Prefer a")
-    print("WASAPI one; anything marked UNUSABLE cannot be recorded from by this")
-    print("program, whatever its name says.")
+    print("The SAME microphone appears once per Windows audio system, and they")
+    print("are not interchangeable. Pick one with NO warning beside it: the")
+    print(f"program needs {config.SAMPLE_RATE} Hz mono, and MME and DirectSound")
+    print("entries get that from Windows' resampler while WASAPI shared mode")
+    print("only ever offers the device's own rate.")
     print()
     print("Put the number in config.py as MIC_DEVICE, then run:")
     print("    venv\\Scripts\\python -m subtitles.miccheck")
@@ -165,10 +191,27 @@ def test(device, seconds):
                                 samplerate=config.SAMPLE_RATE, dtype="int16")
         print(f"  OK   {config.SAMPLE_RATE} Hz mono is accepted")
     except Exception as exc:                    # noqa: BLE001
-        print(f"  FAIL this device will not give us {config.SAMPLE_RATE} Hz "
+        print(f"  FAIL this entry will not give us {config.SAMPLE_RATE} Hz "
               f"mono ({exc})")
-        print(f"       In Windows Sound settings, set this input's format to")
-        print(f"       16000 Hz (or 48000 Hz) mono/stereo and try again.")
+        if "wasapi" in (api or "").lower():
+            print( "       That is normal for WASAPI: in shared mode it offers only")
+            print(f"       the device's own rate ({int(info['default_samplerate'])} Hz),")
+            print( "       and will not resample. The MME and DirectSound entries")
+            print( "       for the same microphone do, because Windows does it.")
+        alts = usable_alternatives(device)
+        if alts:
+            print()
+            print("       These entries ARE usable — same microphone:")
+            for i, name, a in alts:
+                print(f"         MIC_DEVICE = {i:<3}  {name[:40]:40} ({a})")
+            print()
+            print("       Put one in config_local.py, then run this again.")
+        else:
+            print()
+            print("       No entry for this microphone accepts it. Open the old")
+            print("       Sound panel (Win+R, mmsys.cpl), Recording tab, this")
+            print("       device, Properties -> Advanced, and choose a standard")
+            print("       format such as 2 channel 16 bit 48000 Hz.")
         return 1
 
     print()
