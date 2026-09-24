@@ -132,6 +132,36 @@ Also note the interface appears in the device list under a **generic** name
 like `USB Audio CODEC`, not under its brand — so do not go looking for
 "Behringer".
 
+### If Windows is in French
+
+The laptop this was set up on runs French Windows. The names you are looking
+for, in the order they appear below:
+
+| English | French |
+|---|---|
+| Settings | **Paramètres** |
+| System → Sound → Input | **Système → Son → Entrée** |
+| Choose a device for speaking or recording | **Choisir un appareil pour parler ou enregistrer** |
+| Test your microphone | **Tester votre microphone** |
+| Input volume | **Volume d'entrée** |
+| Privacy & security → Microphone | **Confidentialité et sécurité → Microphone** |
+| Microphone access | **Accès au microphone** |
+| Let apps access your microphone | **Autoriser les applications à accéder à votre microphone** |
+| Let desktop apps access your microphone | **Autoriser les applications de bureau à accéder à votre microphone** |
+| Recording *(tab in `mmsys.cpl`)* | **Enregistrement** |
+| Show Disabled Devices | **Afficher les périphériques désactivés** |
+| Enable | **Activer** |
+| Properties | **Propriétés** |
+| Levels | **Niveaux** |
+| Advanced | **Avancé** |
+| Set as Default Device | **Définir en tant que périphérique par défaut** |
+| Voice Recorder *(the app)* | **Enregistreur vocal** |
+
+`mmsys.cpl` is the same command in every language, which makes it the quickest
+way to reach the old Sound panel without hunting through a translated menu.
+
+`USB Audio CODEC` is **not** translated — the device keeps that name.
+
 ### When Windows itself hears nothing
 
 If Voice Recorder or any other app records silence, settle it **in Windows
