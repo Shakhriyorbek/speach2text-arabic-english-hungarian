@@ -52,6 +52,7 @@ as its start command and passes the token in through the environment.
 """
 
 import base64
+import collections
 import json
 import os
 import subprocess
@@ -116,6 +117,14 @@ NO_SPEECH_MAX = 0.6
 
 _model = None
 _translator = None
+
+# A short rolling record of what the GPU has actually been asked to do.
+# RunPod's API exposes no way to read a pod's console output, so without this
+# the only record of a live khutbah is the laptop's own window — and when the
+# question is "is the GPU doing the right thing", the laptop is the wrong place
+# to ask. Bounded and in memory: this is a diagnostic, not a transcript, and
+# the contents of a sermon should not outlive the pod.
+_recent = collections.deque(maxlen=60)
 
 # faster_whisper's WhisperModel.transcribe is not thread-safe on a shared model,
 # and _do_translate sets tr.src_lang before calling tr.translate — two requests
@@ -293,6 +302,13 @@ class Handler(BaseHTTPRequestHandler):
             if deadline:
                 payload["deadline"] = deadline
             self._json(200, payload)
+        elif self.path == "/recent":
+            # Authenticated, unlike /health: this carries the words of a
+            # sermon, and the proxy URL is public and guessable.
+            if not self._authorized():
+                self._json(401, {"error": "bad or missing bearer token"})
+                return
+            self._json(200, {"count": len(_recent), "recent": list(_recent)})
         else:
             self._json(404, {"error": "not found"})
 
@@ -335,6 +351,8 @@ class Handler(BaseHTTPRequestHandler):
 
         ms = int((time.time() - t0) * 1000)
         print(f"  translate[{src}] {ms}ms  {text[:40]} -> {out[:40]}", flush=True)
+        _recent.append({"t": time.strftime("%H:%M:%S"), "op": "mt",
+                        "src": src, "ms": ms, "text": text, "out": out})
         self._json(200, {"text": out, "ms": ms})
 
     def do_POST(self):
@@ -392,6 +410,10 @@ class Handler(BaseHTTPRequestHandler):
         kind = "partial" if is_partial else "final"
         print(f"  {secs:.1f}s audio -> {ms}ms ({secs / (ms / 1000 or 1):.1f}x) "
               f"[{mode}/{task}/{lang}/{kind}] {text[:80]}", flush=True)
+        if not is_partial:          # snapshots are drafts; keep only finals
+            _recent.append({"t": time.strftime("%H:%M:%S"), "op": "asr",
+                            "mode": mode, "lang": lang, "secs": round(secs, 1),
+                            "ms": ms, "dropped": dropped, "text": text})
         self._json(200, {"text": text, "ms": ms, "dropped": dropped, "language": lang})
 
     def log_message(self, fmt, *args):

@@ -351,16 +351,26 @@ STATE_FILE = os.path.join(
 )
 
 
-def remember(pod_id: str) -> None:
+def remember(pod_id: str, token: str = "") -> None:
     """Record the pod we just rented.
 
     Written BEFORE we start waiting on it, not after: the window where a pod
     exists and we have forgotten its ID is exactly the window in which a crash
     leaves it billing with nothing left that knows how to stop it.
+
+    The token is kept too, so that the diagnostic tools — smoke_test.py,
+    compare_mt.py, a pre-flight — can talk to a pod that START.bat rented,
+    instead of it being reachable only from inside the process that made it.
+    The file is gitignored and local, the same rule pod_url.txt already has.
     """
     try:
         with open(STATE_FILE, "w", encoding="utf-8") as fh:
-            json.dump({"pod_id": pod_id, "created_at": time.time()}, fh)
+            json.dump({"pod_id": pod_id, "token": token,
+                       "created_at": time.time()}, fh)
+        try:
+            os.chmod(STATE_FILE, 0o600)     # it holds a credential now
+        except OSError:
+            pass
     except OSError as exc:
         # Not fatal — the pod's own deadline still stops the billing — but the
         # operator should know the tidy path just broke.
@@ -378,9 +388,18 @@ def forget() -> None:
 
 def remembered() -> str | None:
     """The pod ID from a previous run, if one was left behind."""
+    return (_state() or {}).get("pod_id") or None
+
+
+def remembered_token() -> str | None:
+    """The token for that pod, so tools can reach a pod START.bat rented."""
+    return (_state() or {}).get("token") or None
+
+
+def _state() -> dict | None:
     try:
         with open(STATE_FILE, encoding="utf-8") as fh:
-            return (json.load(fh) or {}).get("pod_id") or None
+            return json.load(fh) or {}
     except (OSError, ValueError):
         return None
 
@@ -529,6 +548,72 @@ def check() -> int:
     return 0
 
 
+def recent() -> int:
+    """What the GPU has actually been doing. Reads /recent on the live pod.
+
+    Exists because RunPod's API cannot show a pod's console output, so when the
+    question is "is the GPU transcribing correctly", there was nowhere to look
+    except the laptop — which is the wrong place, since the laptop only ever
+    sees what came back.
+    """
+    from subtitles.console import enable_utf8_console
+
+    enable_utf8_console()
+    pod_id, token = remembered(), remembered_token()
+    if not pod_id:
+        print("No pod is recorded as rented. Start one with START.bat.")
+        return 1
+    if not token:
+        print(f"Pod {pod_id} is recorded but its token is not — it was rented")
+        print("by a version that did not save it. Restart it with START.bat.")
+        return 1
+
+    url = f"{proxy_url(pod_id)}/recent"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                               "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            print("This pod is running a server without /recent — restart it")
+            print("with START.bat to pick up the current version.")
+        else:
+            print(f"Could not read it: HTTP {exc.code} {exc.reason}")
+        return 1
+    except Exception as exc:                # noqa: BLE001
+        print(f"Could not reach the pod: {type(exc).__name__}: {exc}")
+        return 1
+
+    rows = data.get("recent") or []
+    if not rows:
+        print(f"Pod {pod_id} is up but has done nothing yet.")
+        print("Nothing has been sent to it — check the laptop is actually")
+        print("using the GPU, and that the microphone is picking up speech.")
+        return 0
+
+    print(f"Last {len(rows)} things the GPU did  (pod {pod_id})")
+    print("=" * 74)
+    for r in rows:
+        if r.get("op") == "asr":
+            print(f"  {r['t']}  ASR  {r['secs']:>4}s audio -> {r['ms']:>5}ms  "
+                  f"[{r['mode']}/{r['lang']}]"
+                  + (f"  dropped {r['dropped']}" if r.get("dropped") else ""))
+            print(f"            {r['text'][:66]}")
+        else:
+            print(f"  {r['t']}  MT   {r['ms']:>5}ms  [{r.get('src')}]")
+            print(f"            {r['text'][:66]}")
+            print(f"         -> {r['out'][:66]}")
+    print("=" * 74)
+    asr = [r for r in rows if r.get("op") == "asr"]
+    mt = [r for r in rows if r.get("op") == "mt"]
+    if asr:
+        print(f"  {len(asr)} transcriptions, mean {sum(r['ms'] for r in asr)//len(asr)}ms")
+    if mt:
+        print(f"  {len(mt)} translations,  mean {sum(r['ms'] for r in mt)//len(mt)}ms")
+    return 0
+
+
 def stock() -> int:
     """What is actually free in our datacenter, right now. Rents nothing.
 
@@ -657,4 +742,6 @@ if __name__ == "__main__":
         sys.exit(build_pod_cmd())
     if "--stock" in sys.argv:
         sys.exit(stock())
+    if "--recent" in sys.argv:
+        sys.exit(recent())
     sys.exit(check())

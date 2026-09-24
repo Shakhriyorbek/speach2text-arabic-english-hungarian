@@ -178,7 +178,7 @@ def _bring_up(progress, should_stop) -> tuple[str, str, dict]:
     info = pod.create(token)
     pod_id = info["id"]
     # Remember it the instant it exists — see pod.remember().
-    pod.remember(pod_id)
+    pod.remember(pod_id, token)
     url = pod.proxy_url(pod_id)
     cost = info.get("costPerHr")
     gpu = (info.get("machine") or {}).get("gpuTypeId") or ""
