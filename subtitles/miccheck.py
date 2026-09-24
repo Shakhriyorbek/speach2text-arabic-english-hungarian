@@ -219,21 +219,37 @@ def test(device, seconds):
     print()
 
     peaks = []
+    all_zero = True
     block = int(config.SAMPLE_RATE * 0.25)
     try:
         with sd.InputStream(samplerate=config.SAMPLE_RATE, channels=1,
                             dtype="int16", device=device) as stream:
             end = time.time() + seconds
+            next_line = 0.0
+            worst_since_line = -math.inf
             while time.time() < end:
                 data, overflowed = stream.read(block)
                 level = dbfs(data.astype(np.float32) / 32768.0)
                 peaks.append(level)
-                if level == -math.inf:
+                if np.any(data):
+                    all_zero = False
+                worst_since_line = max(worst_since_line, level)
+
+                # Print on a clock, not per read. Some host APIs return
+                # immediately when they are not really capturing, which turns
+                # one line per read into hundreds of lines of scrollback and
+                # buries the verdict at the end.
+                now = time.time()
+                if now < next_line:
+                    continue
+                next_line = now + 0.25
+                shown_level, worst_since_line = worst_since_line, -math.inf
+                if shown_level == -math.inf:
                     bar, shown = "", "  silence (digital zero)"
                 else:
-                    filled = max(0, min(40, int((level + 60) / 60 * 40)))
+                    filled = max(0, min(40, int((shown_level + 60) / 60 * 40)))
                     bar = "#" * filled
-                    shown = f"{level:6.1f} dBFS"
+                    shown = f"{shown_level:6.1f} dBFS"
                 print(f"  |{bar:<40}| {shown}" + ("  OVERFLOW" if overflowed else ""),
                       flush=True)
     except KeyboardInterrupt:
@@ -247,9 +263,38 @@ def test(device, seconds):
 
     print()
     print("=" * 72)
+    if all_zero:
+        print("WINDOWS IS FEEDING US SILENCE.")
+        print()
+        print("Every single sample was EXACTLY zero. That is not a quiet room —")
+        print("a real microphone input always carries some faint noise. Exact")
+        print("zero means the audio system accepted the recording and then")
+        print("handed over nothing, and there is essentially one cause:")
+        print()
+        print("  MICROPHONE PRIVACY. Windows denies access by returning silence")
+        print("  rather than an error. Open:")
+        print("     Settings -> Privacy & security -> Microphone")
+        print("     (Parametres -> Confidentialite et securite -> Microphone)")
+        print("  and turn ON all three, the last one especially:")
+        print("     - Microphone access          / Acces au microphone")
+        print("     - Let apps access...         / Autoriser les applications...")
+        print("     - LET DESKTOP APPS ACCESS... / Autoriser les applications")
+        print("                                    de bureau a acceder...")
+        print()
+        print("  That last switch is the one that governs THIS program, it is")
+        print("  separate from the others, and it is off by default on many")
+        print("  machines.")
+        print()
+        print("Less likely, if all three are already on:")
+        print("  - the input's level is 0 or muted: Win+R, mmsys.cpl,")
+        print("    Recording / Enregistrement tab, the device, Properties")
+        print("    / Proprietes, Levels / Niveaux")
+        print("  - another program has the interface open exclusively")
+        return 1
+
     if not finite or loudest < SILENT_DBFS:
-        print("NOTHING IS ARRIVING. The computer sees this input, but it is")
-        print("carrying no sound at all. In the order worth checking:")
+        print("NOTHING IS ARRIVING. The computer sees this input and it is")
+        print("carrying noise but no sound. In the order worth checking:")
         print()
         print("  1. PHANTOM POWER. On a Behringer UM2 and similar interfaces")
         print("     there is a +48V switch. A CONDENSER microphone produces")

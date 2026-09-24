@@ -213,6 +213,12 @@ they are not the same one:
 | *Let apps access your microphone* | Store apps — **Voice Recorder is one** |
 | *Let desktop apps access your microphone* | **this program** |
 
+**Windows denies microphone access by handing over silence, not by raising an
+error.** So a blocked program looks exactly like a dead microphone. The tell is
+*digital zero* — a real input always carries some faint noise, so samples that
+are all exactly zero mean permission, not hardware. `CHECK_MIC.bat` says so
+explicitly when it sees it.
+
 Voice Recorder failing while this program works, or the reverse, is normal —
 they are governed by different switches. Turn all three on.
 
@@ -410,6 +416,7 @@ The one thing to know: if you edited `config.py` directly instead of using
 | Works on another computer, silent on Windows | Device selection or permissions, not hardware — see *When Windows itself hears nothing*. |
 | `Blocking API not supported yet` / `error -9999` | The **WDM-KS** copy. Use the MME or DirectSound one. |
 | `Invalid sample rate` / `error -9997` | Usually the **WASAPI** copy, which will not resample. Use MME or DirectSound. |
+| `WINDOWS IS FEEDING US SILENCE` / digital zero | Microphone privacy — **Autoriser les applications de bureau** is the switch that governs this program. |
 | `RUNPOD_API_KEY is not set` | You did not reopen Command Prompt after `setx`. |
 | `No GPU is free ... on either tier` | RunPod has nothing free in our datacenter. Carry on without the GPU; try again later. |
 | Subtitles suddenly get worse mid-khutbah | The GPU dropped out and the laptop took over. This is the designed fallback, not a fault. Carry on. |
