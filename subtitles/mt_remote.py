@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 
 import config
-from subtitles.http_client import KeepAliveClient
+from subtitles.http_client import USER_AGENT, KeepAliveClient
 
 
 class RemoteTranslator:
@@ -137,5 +137,12 @@ class RemoteTranslator:
                 headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
-        except Exception:
+        except (urllib.error.URLError, http.client.HTTPException, OSError,
+                ValueError, json.JSONDecodeError):
+            return None                 # genuinely unreachable; caller decides
+        except Exception as exc:        # noqa: BLE001
+            # Anything else is a bug in here, not a fact about the network.
+            # Swallowing it as "unreachable" is how a missing import once
+            # disabled GPU translation for a whole session.
+            print(f"[health] unexpected {type(exc).__name__}: {exc}", flush=True)
             return None
