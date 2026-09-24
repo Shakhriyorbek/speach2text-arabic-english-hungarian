@@ -132,6 +132,46 @@ Also note the interface appears in the device list under a **generic** name
 like `USB Audio CODEC`, not under its brand — so do not go looking for
 "Behringer".
 
+### When Windows itself hears nothing
+
+If Voice Recorder or any other app records silence, settle it **in Windows
+before touching this program**, because nothing here can fix it.
+
+**Settings → System → Sound → Input.** Pick `USB Audio CODEC` (or
+`Microphone (USB Audio CODEC)`) as the input device, then speak and watch the
+volume bar on that page. That bar bypasses every app permission, so:
+
+* **The bar moves** → the hardware is fine. Your problem is a permission or an
+  app recording from the wrong device. Carry on below.
+* **The bar does not move** → still hardware or device selection. Check
+  `+48V`, the gain knob, and the XLR cable. If it works on another computer,
+  it is not the microphone.
+
+**Settings → Privacy & security → Microphone.** Three separate switches, and
+they are not the same one:
+
+| Switch | Governs |
+|---|---|
+| *Microphone access* | everything |
+| *Let apps access your microphone* | Store apps — **Voice Recorder is one** |
+| *Let desktop apps access your microphone* | **this program** |
+
+Voice Recorder failing while this program works, or the reverse, is normal —
+they are governed by different switches. Turn all three on.
+
+**Windows may list the interface twice.** A `Microphone (USB Audio CODEC)` and
+a `Line (USB Audio CODEC)` can both exist; only one carries the XLR input. If
+in doubt, try each with `CHECK_MIC.bat`.
+
+**The old Sound control panel** catches what the new Settings page hides. Press
+`⊞ Win + R`, type `mmsys.cpl`, open the **Recording** tab:
+
+* right-click in the empty space → **Show Disabled Devices**; enable it if it
+  is greyed out
+* double-click the device → **Levels** → not 0, and not muted
+* **Advanced** → set the format to something ordinary like
+  *2 channel, 16 bit, 48000 Hz*
+
 ---
 
 ## 5. GPU mode (optional)
@@ -291,6 +331,7 @@ hour or two it is up, plus the storage that holds the models.
 | `MIC_DEVICE = n ... is not a usable input device` | Wrong number. Re-run step 4. |
 | Window opens, no subtitles ever | Run **`CHECK_MIC.bat`**. Wrong microphone, no phantom power, or F1/F2 not pressed. |
 | `CHECK_MIC.bat` says nothing is arriving | Condenser mic with **+48V off** is the usual cause; then gain, then the XLR cable. |
+| Works on another computer, silent on Windows | Device selection or permissions, not hardware — see *When Windows itself hears nothing*. |
 | `RUNPOD_API_KEY is not set` | You did not reopen Command Prompt after `setx`. |
 | `No GPU is free ... on either tier` | RunPod has nothing free in our datacenter. Carry on without the GPU; try again later. |
 | Subtitles suddenly get worse mid-khutbah | The GPU dropped out and the laptop took over. This is the designed fallback, not a fault. Carry on. |
