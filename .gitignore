@@ -18,3 +18,7 @@ pod_url.txt
 # The rented pod we are currently paying for, so STOP.bat and the next
 # START.bat can find it. Machine-specific and short-lived.
 .pod_state.json
+
+# Settings for one particular laptop (the microphone number, mostly).
+# Overrides config.py and survives updates — see config_local.example.py.
+config_local.py

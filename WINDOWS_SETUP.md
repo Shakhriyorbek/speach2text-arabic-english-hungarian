@@ -97,13 +97,19 @@ You get a numbered list. Find your microphone — the stage mic if it is plugged
 in, otherwise something like `Microphone Array (Intel Smart Sound)`. Note the
 number at the start of its line.
 
-Open **`config.py`** in Notepad and set:
+Now make a **`config_local.py`** — copy `config_local.example.py`, rename the
+copy, and put one line in it:
 
 ```python
 MIC_DEVICE = 3        # <- the number you just found
 ```
 
-Save it.
+Save it. Do **not** edit `config.py` for this.
+
+> `config.py` belongs to the program and is replaced whenever you update.
+> `config_local.py` belongs to this laptop, overrides `config.py`, and is never
+> shipped — so updating cannot silently undo your microphone setting and hand
+> you a blank screen.
 
 > The number is pinned deliberately rather than left as "the Windows default",
 > so that a Bluetooth headset connecting mid-sermon cannot quietly take over
@@ -353,6 +359,25 @@ hour or two it is up, plus the storage that holds the models.
 
 ---
 
+## Updating later
+
+New versions fix real things — several of the bugs in this guide were found the
+hard way. Updating is safe:
+
+**With git:** `git pull`
+
+**With a ZIP:** unzip it over the folder and say yes to replacing files.
+
+Neither touches `venv\`, `models\` or `config_local.py` — the first two are not
+in the download at all, and the third is yours. So **your 3 GB of models and
+your microphone setting both survive**, and you do not re-run `install.bat`.
+
+The one thing to know: if you edited `config.py` directly instead of using
+`config_local.py`, an update discards those edits. That is exactly why
+`config_local.py` exists.
+
+---
+
 ## If it does not work
 
 | Problem | What it means |
@@ -372,7 +397,8 @@ hour or two it is up, plus the storage that holds the models.
 ## What is on this laptop afterwards
 
 ```
-config.py          every setting, in one file. MIC_DEVICE is the one you changed
+config.py          every setting, in one file. Replaced on update — do not edit
+config_local.py    your settings for THIS laptop. Overrides config.py, survives updates
 install.bat        one-time setup (this guide, step 3)
 CHECK_MIC.bat      is the microphone carrying sound? live level meter
 CHECK_SETUP.bat    is the GPU account set up? free, rents nothing

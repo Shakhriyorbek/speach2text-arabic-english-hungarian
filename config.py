@@ -475,3 +475,29 @@ FG_PARTIAL = "#b8c4b8"       # in-progress line, still being spoken. Deliberatel
 FG_BADGE = "#44aa44"         # mode badge colour (top-right corner).
 
 START_FULLSCREEN = True      # start in fullscreen (F11 toggles at runtime).
+
+
+# ---------------------------------------------------------------------------
+# Machine-specific overrides  (config_local.py)
+# ---------------------------------------------------------------------------
+
+# Anything defined in config_local.py wins over everything above.
+#
+# Why it exists: this file is part of the program, so updating the program
+# overwrites it — and the settings that differ per laptop, above all
+# MIC_DEVICE, live in it. Before this, every update meant re-finding the
+# microphone number, and the punishment for forgetting was a blank screen.
+#
+# config_local.py is gitignored and is never shipped, so it survives a
+# `git pull`, a re-downloaded ZIP, or a fresh clone copied over the top.
+#
+# Make one by copying config_local.example.py, and put in it only the lines
+# that are true for THIS laptop:
+#
+#     MIC_DEVICE = 3
+#
+# Leave everything else here, so a fix to a default reaches this laptop.
+try:
+    from config_local import *       # noqa: F401,F403
+except ImportError:
+    pass
