@@ -65,6 +65,51 @@ class Cancelled(Exception):
     """The operator pressed Esc while we were still setting up."""
 
 
+def check_tk():
+    """Fail with something readable if Tkinter cannot open a window.
+
+    Tkinter draws the subtitle window, so a broken Tcl install stops
+    everything — and it announces itself as a traceback ending in "Can't find
+    a usable init.tcl", which is not a sentence anyone should have to meet on a
+    Friday morning. Almost always the Python installer was run without the
+    "tcl/tk and IDLE" component ticked.
+    """
+    try:
+        probe = tk.Tk()
+        probe.withdraw()
+        probe.destroy()
+        return True
+    except Exception as exc:                # noqa: BLE001
+        print()
+        print("=" * 70)
+        print("PYTHON CANNOT DRAW WINDOWS ON THIS MACHINE.")
+        print()
+        print(f"  {type(exc).__name__}: {str(exc).splitlines()[0]}")
+        print()
+        print("Tkinter is missing or broken, and it is what draws the subtitle")
+        print("window — so nothing can run until it is fixed. It is a Python")
+        print("installation problem, not a problem with this program.")
+        print()
+        print("To fix it:")
+        print("  1. Windows Settings -> Apps -> find 'Python 3.13' -> Modify")
+        print("     (Parametres -> Applications -> Python 3.13 -> Modifier)")
+        print("  2. Choose 'Modify', and make sure 'tcl/tk and IDLE' IS TICKED")
+        print("  3. Finish, then run install.bat again")
+        print()
+        print("If it is already ticked, check for a stale TCL_LIBRARY left")
+        print("behind by other software:")
+        print("     echo %TCL_LIBRARY%")
+        print("     echo %TK_LIBRARY%")
+        print("Anything printed there other than 'ECHO is on' is probably the")
+        print("cause; remove those variables and reopen the terminal.")
+        print()
+        print("Meanwhile the GPU half can still be checked, since it needs no")
+        print("window:")
+        print("     venv\\Scripts\\python -m subtitles.launcher --selftest")
+        print("=" * 70)
+        return False
+
+
 # --- the work, on a background thread ------------------------------------
 
 
@@ -466,6 +511,9 @@ def main():
               "config.py as they are.", flush=True)
         app.main()
         return 0
+
+    if not check_tk():
+        return 2
 
     win = LauncherWindow()
     outcome = win.run()

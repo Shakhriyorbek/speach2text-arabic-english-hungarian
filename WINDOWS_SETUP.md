@@ -31,6 +31,11 @@ Get **Python 3.13** from <https://www.python.org/downloads/>.
 **Tick "Add Python to PATH"** on the first screen of the installer. It is easy
 to miss and nothing works without it.
 
+**And leave "tcl/tk and IDLE" ticked** on the optional-features screen. It is
+on by default, but installers get clicked through — and without it Python
+cannot draw windows at all, which means no subtitles. It fails late, with
+`Can't find a usable init.tcl`, long after everything else has been set up.
+
 > **Not 3.14 or newer.** One of the parts we need — the voice-activity detector
 > that decides when someone is speaking — has no build for 3.14 yet. The
 > installer checks this and refuses rather than failing halfway. 3.10 to 3.13
@@ -474,6 +479,7 @@ The one thing to know: if you edited `config.py` directly instead of using
 | Problem | What it means |
 |---|---|
 | `install.bat` says no supported Python | Python 3.14+, or PATH not ticked. Install 3.13. |
+| `Can't find a usable init.tcl` / `PYTHON CANNOT DRAW WINDOWS` | Python was installed without **tcl/tk and IDLE**. Settings → Apps → Python 3.13 → **Modify**, tick it, then re-run `install.bat`. |
 | `MIC_DEVICE = n ... is not a usable input device` | Wrong number. Re-run step 4. |
 | Window opens, no subtitles ever | Run **`CHECK_MIC.bat`**. Wrong microphone, no phantom power, or F1/F2 not pressed. |
 | `CHECK_MIC.bat` says nothing is arriving | Condenser mic with **+48V off** is the usual cause; then gain, then the XLR cable. |
