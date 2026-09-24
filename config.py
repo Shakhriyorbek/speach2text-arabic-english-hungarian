@@ -159,11 +159,22 @@ RUNPOD_CLOUD_TYPE = "SECURE"
 
 # Only needs CUDA + python3; everything else lives on the volume. The container
 # disk is scratch space, thrown away with the pod.
-RUNPOD_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+# The server needs a CUDA DRIVER (which comes from the host, not the image) and
+# python3. It does NOT need PyTorch or a CUDA toolkit: bootstrap.sh installs
+# faster-whisper, ctranslate2 and the CUDA 12 libraries as pip wheels into the
+# venv on the volume, and start_whisper.sh puts them on LD_LIBRARY_PATH. So a
+# ~20 GB CUDA image is minutes of pod startup spent pulling things we discard.
+#
+# It must also be the SAME BASE AS RUNPOD_BUILD_IMAGE. A venv is tied to the
+# interpreter that made it: build on Ubuntu 24.04 (python3.12) and then boot a
+# py3.11 image, and venv_ok() correctly rejects the venv and rebuilds it —
+# reinstalling ~2 GB of wheels on every single pod start, every Friday.
+RUNPOD_IMAGE = "runpod/base:1.3.1-ubuntu2404"
 RUNPOD_CONTAINER_DISK_GB = 20
 
-# Image for the one-time CPU box that converts the models. Three requirements,
-# and it took two failed attempts to learn the third:
+# Image for the one-time CPU box that converts the models. Keep this and
+# RUNPOD_IMAGE on the same base, so the venv built here is reusable there.
+# Three requirements, and it took two failed attempts to learn the third:
 #
 #   1. A MODERN PYTHON. RunPod's default CPU templates can be Ubuntu 20.04
 #      with python3.8, which has no ensurepip (so `venv` half-fails) and no

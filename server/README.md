@@ -216,8 +216,17 @@ Two things that used to be copied by hand no longer exist:
 and the server died with the web terminal tab; as the container's start command
 there is no tab to close.
 
-Budget **4–6 minutes**: ~2–3 to get a machine, then ~1–2 to read ~11 GB of
-models off the network volume.
+Budget **about 4 minutes** from click to subtitles. Measured on a real RTX
+4090: 241 s, of which 2 s is getting the machine and the rest is pulling the
+image, checking the volume and loading the models into VRAM.
+
+It was 397 s until the pod image was changed from `runpod/pytorch` to
+`runpod/base`. Two reasons that helped, and the second is the one worth
+remembering: the CUDA image is ~20 GB to pull and the server does not use any
+of it (bootstrap.sh installs its own CUDA wheels), *and* it is python3.11 while
+the volume's venv was built on python3.12 — so every single pod start was
+correctly rejecting that venv and reinstalling ~2 GB of wheels. **Keep
+RUNPOD_IMAGE and RUNPOD_BUILD_IMAGE on the same base.**
 
 ### Doing it by hand
 
