@@ -148,6 +148,27 @@ voice detector both require it; the interface itself runs at 44.1 or 48 kHz.
 Testing a bad entry prints the usable ones for the same microphone, so it is a
 number to copy rather than something to work out.
 
+**If you are not sure which entry is the right one, stop guessing and sweep:**
+
+```
+CHECK_MIC.bat --sweep
+```
+
+It listens to every usable input in turn — keep talking throughout — and prints
+a table of which ones actually carried sound. Whatever shows a level is the
+answer, whatever its name says.
+
+**If the sweep finds nothing on any input**, the problem is not which entry you
+picked, and no amount of changing `MIC_DEVICE` will help. Settle it outside
+this program: `⊞ Win + R` → `mmsys.cpl` → **Enregistrement**, speak, and watch
+the green bars beside each device. Those bars are Windows itself and ignore app
+permissions:
+
+* **a bar moves** → Windows has your voice and is denying it to this program.
+  Privacy settings, or another program holding the interface open.
+* **no bar moves** → nothing is reaching Windows at all. Back to `+48V`, the
+  gain knob, the XLR cable — and check **Propriétés → Niveaux** is not 0.
+
 If it reports `NOTHING IS ARRIVING`, the computer can see the input but no
 sound is reaching it, and the tool lists what to check in order. With a **USB
 audio interface** (Behringer U-Phoria UM2 and similar), the overwhelmingly

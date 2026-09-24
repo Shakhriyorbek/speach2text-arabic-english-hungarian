@@ -336,17 +336,105 @@ def test(device, seconds):
     return 0
 
 
+def sweep(seconds=3):
+    """Try EVERY usable input in turn and report which ones carry sound.
+
+    Picking entries one at a time and re-running is slow and, on a laptop with
+    ten inputs that are four copies of two microphones, genuinely confusing.
+    This listens to each in turn while you keep talking, and prints a table at
+    the end. Whatever shows a level is the answer, whatever its name says.
+    """
+    print("Sweeping every usable input.")
+    print(f"KEEP TALKING for the whole test — about {seconds}s per input.")
+    print()
+
+    results = []
+    for i, d in enumerate(sd.query_devices()):
+        if d["max_input_channels"] < 1:
+            continue
+        api = host_api_of(i)
+        if is_unusable(api):
+            results.append((i, d["name"], api, None, "kernel streaming"))
+            continue
+        if not accepts_16k(i):
+            results.append((i, d["name"], api, None, f"no {config.SAMPLE_RATE} Hz"))
+            continue
+
+        print(f"  listening to [{i}] {d['name'][:40]}...", flush=True)
+        loudest, zero = -math.inf, True
+        try:
+            block = int(config.SAMPLE_RATE * 0.1)
+            with sd.InputStream(samplerate=config.SAMPLE_RATE, channels=1,
+                                dtype="int16", device=i) as st:
+                end = time.time() + seconds
+                while time.time() < end:
+                    data, _ = st.read(block)
+                    if np.any(data):
+                        zero = False
+                    loudest = max(loudest, dbfs(data.astype(np.float32) / 32768.0))
+        except Exception as exc:                # noqa: BLE001
+            results.append((i, d["name"], api, None, f"{type(exc).__name__}"))
+            continue
+        note = "DIGITAL ZERO" if zero else ""
+        results.append((i, d["name"], api, loudest, note))
+
+    print()
+    print("=" * 76)
+    print(f"  {'#':>3}  {'device':38} {'api':14} {'peak':>9}  note")
+    print("-" * 76)
+    working = []
+    for i, name, api, level, note in results:
+        lvl = "-" if level is None or level == -math.inf else f"{level:6.1f}dB"
+        flag = "  <<<" if (level is not None and level > SILENT_DBFS) else ""
+        if flag:
+            working.append((level, i, name, api))
+        print(f"  {i:>3}  {name[:38]:38} {api[:14]:14} {lvl:>9}  {note}{flag}")
+    print("=" * 76)
+    print()
+
+    if not working:
+        print("NOTHING carried any sound, on any input.")
+        print()
+        print("Because this is every input on the machine, the problem is not")
+        print("which one you picked. Either Windows is blocking all recording")
+        print("(privacy), or no sound is reaching Windows at all.")
+        print()
+        print("Settle it OUTSIDE this program — Win+R, mmsys.cpl, the")
+        print("Recording / Enregistrement tab. Speak, and watch the green bars")
+        print("beside each device. Those bars are Windows itself, so they")
+        print("ignore app permissions entirely:")
+        print("  - a bar moves  -> Windows has your voice, and this program is")
+        print("                    being denied it. Privacy settings.")
+        print("  - none move    -> nothing is reaching Windows. Check +48V,")
+        print("                    the gain knob, and the XLR cable, and that")
+        print("                    the device is not muted (Properties/Levels).")
+        return 1
+
+    working.sort(reverse=True)
+    print("These inputs CARRIED SOUND. Loudest first:")
+    for level, i, name, api in working:
+        print(f"    MIC_DEVICE = {i:<3}  {level:6.1f} dBFS  {name[:36]:36} ({api})")
+    print()
+    print(f"Put the top one in config_local.py, then run this again without")
+    print(f"--sweep to set the gain properly.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Check the microphone reaches this PC.")
     ap.add_argument("--device", type=int, default=None,
                     help="input number to test (default: config.MIC_DEVICE)")
     ap.add_argument("--seconds", type=int, default=10)
     ap.add_argument("--list", action="store_true", help="just list the inputs")
+    ap.add_argument("--sweep", action="store_true",
+                    help="test EVERY input and report which carry sound")
     args = ap.parse_args()
 
     if args.list:
         list_devices()
         return 0
+    if args.sweep:
+        return sweep(max(2, args.seconds // 3))
 
     device = args.device if args.device is not None else config.MIC_DEVICE
     if device is None:
