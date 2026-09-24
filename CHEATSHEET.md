@@ -39,7 +39,7 @@ The **top-right corner** shows the current mode: `1: ARAB` or `2: AUTO`.
 
 | Problem | Fix |
 |---------|-----|
-| **No subtitles when speaking** | Is the right mode on (F1/F2)? Is the mic plugged in and unmuted? Speak clearly, then pause. |
+| **No subtitles when speaking** | Is the right mode on (F1/F2)? Speak clearly, then pause. Still nothing → close and run **`CHECK_MIC.bat`**. |
 | **Wrong microphone used** | Open a terminal in the folder, run `venv\Scripts\python -m sounddevice`, note your mic's number, then set `MIC_DEVICE = <number>` in **`config.py`** and restart. |
 | **Subtitles fall further and further behind** | In **`config.py`** lower the size for that part — `MODEL_SIZE_PART2 = "base"` → `"tiny"` (English) or `MODEL_SIZE_PART1 = "small"` → `"base"` (Arabic). Save, restart. |
 | **Arabic (Part 1) not accurate enough** | In **`config.py`** raise `MODEL_SIZE_PART1 = "small"` → `"medium"` (much slower — may lag). Save, restart. |

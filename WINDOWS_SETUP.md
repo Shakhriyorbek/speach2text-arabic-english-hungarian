@@ -112,6 +112,26 @@ Save it.
 The program prints which microphone it opened when it starts, and refuses to
 start on a number that is not there — so you will know either way.
 
+### Check it is actually carrying sound
+
+```
+CHECK_MIC.bat
+```
+
+It watches the input in `config.py` and draws a level bar while you speak. Bars
+should move and peak around **-12 dBFS**.
+
+If it reports `NOTHING IS ARRIVING`, the computer can see the input but no
+sound is reaching it, and the tool lists what to check in order. With a **USB
+audio interface** (Behringer U-Phoria UM2 and similar), the overwhelmingly
+common cause is **phantom power**: a condenser microphone produces absolutely
+nothing until the **+48V** switch on the interface is on. A dynamic microphone
+does not need it.
+
+Also note the interface appears in the device list under a **generic** name
+like `USB Audio CODEC`, not under its brand — so do not go looking for
+"Behringer".
+
 ---
 
 ## 5. GPU mode (optional)
@@ -269,7 +289,8 @@ hour or two it is up, plus the storage that holds the models.
 |---|---|
 | `install.bat` says no supported Python | Python 3.14+, or PATH not ticked. Install 3.13. |
 | `MIC_DEVICE = n ... is not a usable input device` | Wrong number. Re-run step 4. |
-| Window opens, no subtitles ever | Wrong microphone, or F1/F2 not pressed. Check the `Microphone:` line in the console. |
+| Window opens, no subtitles ever | Run **`CHECK_MIC.bat`**. Wrong microphone, no phantom power, or F1/F2 not pressed. |
+| `CHECK_MIC.bat` says nothing is arriving | Condenser mic with **+48V off** is the usual cause; then gain, then the XLR cable. |
 | `RUNPOD_API_KEY is not set` | You did not reopen Command Prompt after `setx`. |
 | `No GPU is free ... on either tier` | RunPod has nothing free in our datacenter. Carry on without the GPU; try again later. |
 | Subtitles suddenly get worse mid-khutbah | The GPU dropped out and the laptop took over. This is the designed fallback, not a fault. Carry on. |
@@ -282,6 +303,7 @@ hour or two it is up, plus the storage that holds the models.
 ```
 config.py          every setting, in one file. MIC_DEVICE is the one you changed
 install.bat        one-time setup (this guide, step 3)
+CHECK_MIC.bat      is the microphone carrying sound? live level meter
 CHECK_SETUP.bat    is the GPU account set up? free, rents nothing
 START.bat          rent a GPU and show subtitles          <- the normal one
 run.bat            subtitles on this laptop only, no GPU, free
