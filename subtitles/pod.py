@@ -184,10 +184,42 @@ def create(token: str) -> dict:
         },
     }
 
-    pod = _request("POST", "/pods", body, timeout=60.0)
+    try:
+        pod = _request("POST", "/pods", body, timeout=60.0)
+    except PodError as exc:
+        # "no instances currently available" means this datacenter has none of
+        # our acceptable cards free on this tier. The volume is pinned here, so
+        # moving datacenter is not an option — the only lever left is the other
+        # cloud tier. A Community card running large-v3 beats the laptop
+        # running "small", which is what refusing would actually mean.
+        other = "COMMUNITY" if body["cloudType"] == "SECURE" else "SECURE"
+        if not (_no_capacity(exc) and getattr(config, "RUNPOD_CLOUD_FALLBACK", True)):
+            raise
+        print(f"[pod] no {body['cloudType']} card free in "
+              f"{config.RUNPOD_DATACENTER_ID} — trying {other}", flush=True)
+        body["cloudType"] = other
+        try:
+            pod = _request("POST", "/pods", body, timeout=60.0)
+        except PodError as exc2:
+            if _no_capacity(exc2):
+                raise PodError(
+                    f"No GPU is free in {config.RUNPOD_DATACENTER_ID} right now, "
+                    f"on either tier.\n"
+                    f"The models live on a network volume pinned to that "
+                    f"datacenter, so we cannot move. Wait and try again, or add "
+                    f"more cards to RUNPOD_GPU_TYPES in config.py.\n"
+                    f"The subtitles still work without a GPU, less accurately."
+                ) from exc2
+            raise
+
     if not isinstance(pod, dict) or not pod.get("id"):
         raise PodError(f"RunPod accepted the request but returned no pod: {pod!r}")
     return pod
+
+
+def _no_capacity(exc: Exception) -> bool:
+    """Is this 'the datacenter is full' rather than 'we asked wrongly'?"""
+    return "no instances currently available" in str(exc).lower()
 
 
 def volume(volume_id: str) -> dict | None:

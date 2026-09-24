@@ -115,24 +115,46 @@ RUNPOD_NETWORK_VOLUME_ID = "ygpnnqangq"
 # is a datacenter that strands you the week 4090s are busy.
 RUNPOD_DATACENTER_ID = "EU-RO-1"                   # e.g. "EU-CZ-1"
 
-# Cards we are willing to rent, best first. This is a LIST, not a choice, and
-# that matters: if the datacenter is out of 4090s at 11am on a Friday we cannot
-# move to another datacenter (the volume is pinned), so the only protection
-# against a stockout is being willing to take the next card. All of these have
-# 24 GB, which fits large-v3 + NLLB with room for beam search.
-# Names must match RunPod's exactly, e.g. "NVIDIA GeForce RTX 4090". Copy them
-# from the GPU list on the Pods deploy page; there is no REST endpoint that
-# lists them, and a name that does not match is rejected only at rent time.
+# Cards we are willing to rent. This is a LIST, and the length of it is the
+# single most important reliability setting here: a network volume is pinned to
+# one datacenter, so when that datacenter has nothing free the only way out is
+# to be willing to take another card. Measured the hard way — a list of three
+# (4090, A5000, L40S) failed with "no instances currently available" on an
+# ordinary Wednesday afternoon.
+#
+# What actually has to fit, at float16 with beam 5 on finals:
+#     Whisper large-v3        3.1 GB
+#     NLLB-200-distilled-1.3B 2.7 GB
+#     context + activations  ~1.5 GB
+#                            ~7.5 GB peak
+# So 16 GB is plenty and there is no reason to hold out for 24. (If you ever
+# adopt NLLB-3.3B after measuring it, that becomes ~12.5 GB and the 16 GB
+# entries below should go.)
+#
+# Ordered cheapest-adequate first; RunPod picks whichever is actually free, so
+# order is a preference and length is the insurance. Names must match RunPod's
+# exactly — copy them from the GPU list on the Pods deploy page.
 RUNPOD_GPU_TYPES = [
-    "NVIDIA GeForce RTX 4090",
-    "NVIDIA RTX A5000",
-    "NVIDIA L40S",
+    "NVIDIA RTX A4500",                 # 20 GB
+    "NVIDIA RTX 4000 Ada Generation",   # 20 GB
+    "NVIDIA GeForce RTX 3090",          # 24 GB
+    "NVIDIA RTX A5000",                 # 24 GB
+    "NVIDIA RTX A4000",                 # 16 GB
+    "NVIDIA RTX A6000",                 # 48 GB
+    "NVIDIA GeForce RTX 4090",          # 24 GB
+    "NVIDIA A40",                       # 48 GB
+    "NVIDIA L4",                        # 24 GB
+    "NVIDIA RTX 6000 Ada Generation",   # 48 GB
+    "NVIDIA L40",                       # 48 GB
+    "NVIDIA L40S",                      # 48 GB
 ]
 
-# "SECURE" = RunPod's own vetted datacenters. "COMMUNITY" = other people's idle
-# hardware at about half the price. We pay the difference: at roughly 10 GPU-
-# hours a month that is ~$4, and the failure it buys out of is arriving on a
-# Friday to find no machine free — with a volume that cannot follow us elsewhere.
+# When the preferred cloud has nothing free, take the other one rather than
+# have no subtitles. Secure is the better tier and stays the default, but a
+# Community card running large-v3 beats the laptop running "small" — which is
+# what "no GPU" actually means on the day.
+RUNPOD_CLOUD_FALLBACK = True
+
 RUNPOD_CLOUD_TYPE = "SECURE"
 
 # Only needs CUDA + python3; everything else lives on the volume. The container
@@ -165,9 +187,15 @@ RUNPOD_BUILD_IMAGE = "runpod/base:1.3.1-ubuntu2404"
 RUNPOD_DEADLINE_HOURS = 6
 
 # How long to wait for a pod to boot and load the models before giving up and
-# offering to carry on without the GPU. Measured: ~2-3 min to boot, then ~1-2
-# min to load large-v3 and NLLB off the network volume.
-POD_BOOT_TIMEOUT_S = 480
+# offering to carry on without the GPU.
+#
+# MEASURED, on a first real run: 397 s total — 3 s to get a machine, then 390 s
+# before /health answered. Most of that is pulling the container image and
+# loading ~6 GB of models off the network volume. 480 s left only 83 s of
+# margin, which on a slower morning is a timeout and a silent drop to the
+# laptop's models. Waiting longer costs nothing when it is not needed; giving
+# up too early costs the whole point of the GPU.
+POD_BOOT_TIMEOUT_S = 900
 
 # Which branch of the project the pod pulls its server files from. bootstrap.sh
 # runs on every pod start (it is a fast no-op on a prepared volume), and it

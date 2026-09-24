@@ -172,7 +172,8 @@ def _bring_up(progress, should_stop) -> tuple[str, str, dict]:
         except Exception as exc:                # noqa: BLE001 - report, keep waiting
             last_error = type(exc).__name__
         remaining = int(deadline - time.time())
-        progress(4, f"még {remaining}s / {remaining}s left")
+        progress(4, f"még legfeljebb {remaining}s / up to {remaining}s more",
+                 done=False)
         time.sleep(5)
     progress(4, f"{health.get('model')} / {health.get('device')}")
 
@@ -252,8 +253,8 @@ class LauncherWindow:
     # -- worker side -------------------------------------------------------
 
     def _worker(self):
-        def progress(index, note):
-            self._q.put(("step", index, note))
+        def progress(index, note, done=True):
+            self._q.put(("step", index, note if done else ("~" + note)))
 
         try:
             url, token, health = _bring_up(progress, self._stop)
@@ -303,7 +304,11 @@ class LauncherWindow:
         indistinguishable from a window that has crashed.
         """
         for i, (hu, en) in enumerate(STEPS):
-            if i < index or (i == index and note):
+            # A note prefixed with "~" means "still working, and here is why
+            # the wait is normal" — not "done". Marking a six-minute wait as OK
+            # every five seconds is how a progress display stops being read.
+            waiting = bool(note) and note.startswith("~")
+            if i < index or (i == index and note and not waiting):
                 mark, colour = "OK", config.FG_BADGE
             elif i == index:
                 mark, colour = "..", config.FG_NEW
@@ -311,7 +316,7 @@ class LauncherWindow:
                 mark, colour = "  ", config.FG_OLD
             text = f" {mark} {hu}  /  {en}"
             if i == index and note:
-                text += f"   —  {note}"
+                text += f"   —  {note.lstrip('~')}"
             self._rows[i].configure(text=text, fg=colour)
 
     def _finish(self):
@@ -370,9 +375,9 @@ def selftest() -> int:
     stop = threading.Event()
     t0 = time.time()
 
-    def progress(index, note):
+    def progress(index, note, done=True):
         hu, en = STEPS[index]
-        mark = "OK" if note else ".."
+        mark = "OK" if (note and done) else ".."
         line = f"  [{mark}] {en}"
         if note:
             line += f"  —  {note}"
