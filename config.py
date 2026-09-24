@@ -135,18 +135,24 @@ RUNPOD_DATACENTER_ID = "EU-RO-1"                   # e.g. "EU-CZ-1"
 # order is a preference and length is the insurance. Names must match RunPod's
 # exactly — copy them from the GPU list on the Pods deploy page.
 RUNPOD_GPU_TYPES = [
-    "NVIDIA RTX A4500",                 # 20 GB
-    "NVIDIA RTX 4000 Ada Generation",   # 20 GB
-    "NVIDIA GeForce RTX 3090",          # 24 GB
-    "NVIDIA RTX A5000",                 # 24 GB
-    "NVIDIA RTX A4000",                 # 16 GB
-    "NVIDIA RTX A6000",                 # 48 GB
-    "NVIDIA GeForce RTX 4090",          # 24 GB
-    "NVIDIA A40",                       # 48 GB
-    "NVIDIA L4",                        # 24 GB
-    "NVIDIA RTX 6000 Ada Generation",   # 48 GB
-    "NVIDIA L40",                       # 48 GB
-    "NVIDIA L40S",                      # 48 GB
+    "NVIDIA RTX A4500",                     # 20 GB
+    "NVIDIA RTX 4000 Ada Generation",       # 20 GB
+    "NVIDIA RTX 4000 SFF Ada Generation",   # 20 GB
+    "NVIDIA RTX 2000 Ada Generation",       # 16 GB
+    "NVIDIA GeForce RTX 3090",              # 24 GB
+    "NVIDIA RTX A5000",                     # 24 GB
+    "NVIDIA RTX A4000",                     # 16 GB
+    "NVIDIA RTX A6000",                     # 48 GB
+    "NVIDIA GeForce RTX 4090",              # 24 GB
+    "NVIDIA RTX PRO 4500 Blackwell",        # 32 GB
+    "NVIDIA RTX PRO 4000 Blackwell",        # 24 GB
+    "NVIDIA A40",                           # 48 GB
+    "NVIDIA L4",                            # 24 GB
+    "NVIDIA RTX 5000 Ada Generation",       # 32 GB
+    "NVIDIA RTX 6000 Ada Generation",       # 48 GB
+    "NVIDIA L40",                           # 48 GB
+    "NVIDIA L40S",                          # 48 GB
+    "NVIDIA GeForce RTX 5090",              # 32 GB
 ]
 
 # When the preferred cloud has nothing free, take the other one rather than
@@ -154,6 +160,12 @@ RUNPOD_GPU_TYPES = [
 # Community card running large-v3 beats the laptop running "small" — which is
 # what "no GPU" actually means on the day.
 RUNPOD_CLOUD_FALLBACK = True
+
+# Availability in one datacenter is volatile — measured: a card went from "no
+# stock" to "Low" inside a minute. So a refusal is worth sitting out rather
+# than reporting. Keep asking for this long before giving up; the operator is
+# standing at the laptop and would otherwise just run it again by hand.
+RUNPOD_CAPACITY_RETRY_S = 180
 
 RUNPOD_CLOUD_TYPE = "SECURE"
 

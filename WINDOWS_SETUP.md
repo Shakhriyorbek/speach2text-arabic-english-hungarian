@@ -316,6 +316,13 @@ Check it, which costs nothing and rents nothing:
 CHECK_SETUP.bat
 ```
 
+And to see whether a GPU is actually free right now — worth running before a
+khutbah, since availability in one datacenter changes minute to minute:
+
+```
+CHECK_SETUP.bat --stock
+```
+
 Expect:
 
 ```
@@ -475,7 +482,7 @@ The one thing to know: if you edited `config.py` directly instead of using
 | `Invalid sample rate` / `error -9997` | Usually the **WASAPI** copy, which will not resample. Use MME or DirectSound. |
 | `WINDOWS IS FEEDING US SILENCE` / digital zero | Microphone privacy — **Autoriser les applications de bureau** is the switch that governs this program. |
 | `RUNPOD_API_KEY is not set` | You did not reopen Command Prompt after `setx`. |
-| `No GPU is free ... on either tier` | RunPod has nothing free in our datacenter. Carry on without the GPU; try again later. |
+| `No GPU is free ...` | RunPod has nothing free in our datacenter *at that moment*. It keeps asking for 3 minutes first. Run `CHECK_SETUP.bat --stock` to see what is free; carry on without the GPU meanwhile. |
 | Subtitles suddenly get worse mid-khutbah | The GPU dropped out and the laptop took over. This is the designed fallback, not a fault. Carry on. |
 | Everything frozen | **Esc**, then start it again. |
 

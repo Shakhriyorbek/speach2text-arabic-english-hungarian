@@ -184,37 +184,45 @@ def create(token: str) -> dict:
         },
     }
 
-    try:
-        pod = _request("POST", "/pods", body, timeout=60.0)
-    except PodError as exc:
-        # "no instances currently available" means this datacenter has none of
-        # our acceptable cards free on this tier. The volume is pinned here, so
-        # moving datacenter is not an option — the only lever left is the other
-        # cloud tier. A Community card running large-v3 beats the laptop
-        # running "small", which is what refusing would actually mean.
-        other = "COMMUNITY" if body["cloudType"] == "SECURE" else "SECURE"
-        if not (_no_capacity(exc) and getattr(config, "RUNPOD_CLOUD_FALLBACK", True)):
-            raise
-        print(f"[pod] no {body['cloudType']} card free in "
-              f"{config.RUNPOD_DATACENTER_ID} — trying {other}", flush=True)
-        body["cloudType"] = other
-        try:
-            pod = _request("POST", "/pods", body, timeout=60.0)
-        except PodError as exc2:
-            if _no_capacity(exc2):
-                raise PodError(
-                    f"No GPU is free in {config.RUNPOD_DATACENTER_ID} right now, "
-                    f"on either tier.\n"
-                    f"The models live on a network volume pinned to that "
-                    f"datacenter, so we cannot move. Wait and try again, or add "
-                    f"more cards to RUNPOD_GPU_TYPES in config.py.\n"
-                    f"The subtitles still work without a GPU, less accurately."
-                ) from exc2
-            raise
+    def attempt(cloud):
+        body["cloudType"] = cloud
+        return _request("POST", "/pods", body, timeout=60.0)
 
-    if not isinstance(pod, dict) or not pod.get("id"):
-        raise PodError(f"RunPod accepted the request but returned no pod: {pod!r}")
-    return pod
+    # Availability moves minute to minute, so a refusal is worth waiting out
+    # rather than reporting. Alternate the two tiers while we wait: whichever
+    # frees up first wins.
+    deadline = time.time() + getattr(config, "RUNPOD_CAPACITY_RETRY_S", 180)
+    preferred = getattr(config, "RUNPOD_CLOUD_TYPE", "SECURE")
+    other = "COMMUNITY" if preferred == "SECURE" else "SECURE"
+    tiers = [preferred, other] if getattr(config, "RUNPOD_CLOUD_FALLBACK", True) else [preferred]
+
+    announced = False
+    while True:
+        last = None
+        for cloud in tiers:
+            try:
+                pod = attempt(cloud)
+                if not isinstance(pod, dict) or not pod.get("id"):
+                    raise PodError(f"RunPod returned no pod: {pod!r}")
+                return pod
+            except PodError as exc:
+                if not _no_capacity(exc):
+                    raise
+                last = exc
+        if time.time() >= deadline:
+            raise PodError(
+                f"No GPU is free in {config.RUNPOD_DATACENTER_ID} — kept asking "
+                f"for {getattr(config, 'RUNPOD_CAPACITY_RETRY_S', 180)}s on "
+                f"{' and '.join(tiers)}.\n"
+                f"The models live on a network volume pinned to that datacenter, "
+                f"so we cannot move. Carry on without the GPU and try again "
+                f"later, or add more cards to RUNPOD_GPU_TYPES in config.py."
+            ) from last
+        if not announced:
+            print(f"[pod] nothing free in {config.RUNPOD_DATACENTER_ID} yet — "
+                  f"waiting, availability changes minute to minute", flush=True)
+            announced = True
+        time.sleep(15)
 
 
 def _no_capacity(exc: Exception) -> bool:
@@ -521,6 +529,68 @@ def check() -> int:
     return 0
 
 
+def stock() -> int:
+    """What is actually free in our datacenter, right now. Rents nothing.
+
+    The REST API cannot answer this, so it asks the GraphQL one. Worth running
+    before a khutbah: availability in a single datacenter moves minute to
+    minute, and knowing there is nothing free is very different from finding
+    out while people are arriving.
+    """
+    from subtitles.console import enable_utf8_console
+
+    enable_utf8_console()
+    dc = getattr(config, "RUNPOD_DATACENTER_ID", "")
+    want = set(getattr(config, "RUNPOD_GPU_TYPES", []))
+
+    query = ('query { gpuTypes { id memoryInGb lowestPrice(input:{gpuCount:1,'
+             f'dataCenterId:"{dc}"}}) {{ uninterruptablePrice stockStatus }} }} }}')
+    req = urllib.request.Request(
+        "https://api.runpod.io/graphql",
+        data=json.dumps({"query": query}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {api_key()}",
+                 "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            rows = (json.loads(resp.read()).get("data") or {}).get("gpuTypes") or []
+    except Exception as exc:                # noqa: BLE001
+        print(f"Could not ask RunPod what is in stock: {exc}")
+        return 1
+
+    print(f"GPU availability in {dc}, right now")
+    print("=" * 64)
+    ours, others = [], []
+    for g in rows:
+        lp = g.get("lowestPrice") or {}
+        if not lp.get("stockStatus"):
+            continue
+        row = (g["id"], g.get("memoryInGb") or 0,
+               lp["stockStatus"], lp.get("uninterruptablePrice"))
+        (ours if g["id"] in want else others).append(row)
+
+    for gid, vram, st, price in sorted(ours, key=lambda r: (r[3] or 99)):
+        print(f"  OK   {gid[:38]:38} {vram:>3}G  {st:<6} ${price}")
+    if not ours:
+        print("  none of the cards in RUNPOD_GPU_TYPES are free.")
+    if others:
+        print()
+        print("  Free, but NOT in your RUNPOD_GPU_TYPES list:")
+        for gid, vram, st, price in sorted(others, key=lambda r: (r[3] or 99)):
+            if vram >= 16:
+                print(f"       {gid[:38]:38} {vram:>3}G  {st:<6} ${price}")
+    print("=" * 64)
+    if ours:
+        print(f"{len(ours)} usable card(s) free. START.bat should work now.")
+        return 0
+    print("Nothing usable is free at this moment. START.bat will keep asking")
+    print(f"for {getattr(config, 'RUNPOD_CAPACITY_RETRY_S', 180)}s before giving up —")
+    print("availability changes minute to minute, so it is worth trying.")
+    print("The subtitles work without the GPU either way, less accurately.")
+    return 1
+
+
 def build_pod_cmd() -> int:
     """Create the build box and print exactly what to do next."""
     from subtitles.console import enable_utf8_console
@@ -581,4 +651,6 @@ if __name__ == "__main__":
 
     if "--build-pod" in sys.argv:
         sys.exit(build_pod_cmd())
+    if "--stock" in sys.argv:
+        sys.exit(stock())
     sys.exit(check())
