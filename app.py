@@ -87,19 +87,27 @@ def run_local():
 
         remote_mt = RemoteTranslator(local_fallback=translator)
         info = remote_mt.health()
-        if info and info.get("translate"):
+        if info is None:
+            # Unreachable is NOT a reason to translate locally. RemoteTranslator
+            # already falls back per-line if the server really is down, so
+            # refusing to use it here only guarantees the worse model. This
+            # branch used to be reached by a 403 from the proxy, which quietly
+            # ran a whole khutbah on the 600M model that inverts meaning.
+            print(f"Remote MT at {config.REMOTE_MT_URL} did not answer the "
+                  f"health check — using it anyway; it falls back by itself.")
+            translator = remote_mt
+        elif info.get("translate"):
             print(f"Remote MT: {info.get('translate_model')} "
                   f"at {config.REMOTE_MT_URL}")
             translator = remote_mt
-        elif info:
+        else:
             # Server is up but was started without NLLB_MODEL_DIR. Saying so is
             # better than silently translating locally and wondering later why
             # the quality did not change.
+            # Reachable and explicitly says it has no NLLB. That IS a reason
+            # to translate locally — there is nothing to send to.
             print(f"Remote MT: server at {config.REMOTE_MT_URL} has translation "
                   f"DISABLED — translating on this laptop (600M).")
-        else:
-            print(f"Remote MT at {config.REMOTE_MT_URL} is NOT responding — "
-                  f"translating on this laptop (600M).")
 
     audio_q: "queue.Queue" = queue.Queue(maxsize=config.ASR_QUEUE_MAX)
     ui_q: "queue.Queue" = queue.Queue()

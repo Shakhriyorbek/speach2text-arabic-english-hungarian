@@ -129,7 +129,12 @@ class RemoteTranslator:
 
     def health(self) -> dict | None:
         try:
-            req = urllib.request.Request(f"{self.url}/health", method="GET")
+            # The User-Agent is not decoration: Cloudflare fronts the pod
+            # proxy and answers 403 to Python's default. Without it this
+            # returns None, which app.py reads as "the server is not there".
+            req = urllib.request.Request(
+                f"{self.url}/health", method="GET",
+                headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception:
