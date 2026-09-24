@@ -12,13 +12,27 @@ wrong on the day.
 1. **Charge the laptop** and bring the charger. Transcription keeps the CPU busy.
 2. **Bring the microphone you will actually use**, and its cable/adapter.
 3. **Test once at home** exactly as below. If it works at home it will work there.
-4. Confirm `config.py` is on the safe defaults (this is how it ships):
+4. **Decide which mode you are demonstrating, and check `config.py` matches.**
+
+   The repository ships configured for the **GPU**, not for offline — so if you
+   want the safe offline demonstration you have to say so explicitly:
+
    ```python
    BACKEND          = "local"
-   ASR_LOCATION     = "cpu"
+   ASR_LOCATION     = "cpu"      # ships as "remote"
+   MT_LOCATION      = "cpu"      # ships as "remote"
+   STREAMING_PARTIALS = False    # ships as True; too slow for a laptop CPU
    MODEL_SIZE_PART1 = "small"
-   MIC_DEVICE       = None
    ```
+
+   For the **GPU** demonstration, leave all of those as they ship and follow the
+   GPU section at the bottom of this page instead.
+
+   Either way, check `MIC_DEVICE`. It ships as `1`, which is the built-in mic on
+   the development laptop and almost certainly the wrong number on yours. Run
+   `venv\Scripts\python -m sounddevice` to list devices and set the index you
+   actually want — it is pinned deliberately rather than left as `None` so that
+   a Bluetooth headset connecting mid-sermon cannot silently take over the input.
 
 ---
 
@@ -98,35 +112,65 @@ debug in front of an audience — note what happened and look at it afterwards.
 
 ---
 
-## Optional: the GPU version (better Arabic, more setup)
+## Optional: the GPU version (better Arabic and Hungarian)
 
 Noticeably better Arabic — on the same recording it caught proper names and kept
-a negation that the offline model reversed. But it needs **reliable internet at
-the mosque** plus four things prepared in advance, so do not attempt it live
-unless you have rehearsed it end to end.
+a negation that the offline model reversed. It needs **reliable internet at the
+mosque** and costs about **$10 a month** — rented, not bought. Rehearse it once before relying on it.
 
-1. **Start the VM** and wait ~2 minutes:
-   ```
-   az vm start -g GLOSTER-GPT-HPC-PLAYGROUND-ENV-SHAKH -n ggpt-hpc-shakh-vm
-   ```
-2. **Check the GPU is alive** — this breaks after kernel upgrades:
-   ```
-   ssh -i ~/.ssh/hpc-playground-shakh hpcadmin@<vm-ip> nvidia-smi
-   ```
-   No Tesla T4 in the output? See `server/README.md` for the driver fix.
-3. **Start the server** (token must match the laptop's):
-   ```
-   ./start_whisper.sh <your-token>
-   ```
-4. **On the laptop**, set `ASR_LOCATION = "remote"` and `REMOTE_ASR_URL` to the
-   VM, with `WHISPER_SERVER_TOKEN` in the environment. Then `run.bat` as usual.
+### Set it up once (not on a Friday)
 
-If the server is unreachable the program says so and **automatically uses the
-offline model instead** — F1/F2 keep working, so a network failure degrades
-quality rather than stopping the demonstration.
+Someone technical does this part, once. Full instructions in `server/README.md`:
 
-**Afterwards, deallocate the VM or it keeps charging (~$0.50/hour):**
-```
-az vm deallocate -g GLOSTER-GPT-HPC-PLAYGROUND-ENV-SHAKH -n ggpt-hpc-shakh-vm
-```
-"Stopped" is not enough in the Azure portal — it must say **Deallocated**.
+1. Create a **network volume** in a European datacenter and build the models
+   onto it. Do the build on a cheap **CPU** pod — it needs no GPU, and the
+   translation model needs more RAM to convert than a GPU pod usually has.
+2. Put three values in `config.py`: `RUNPOD_NETWORK_VOLUME_ID`,
+   `RUNPOD_DATACENTER_ID`, and the list of cards you are willing to rent.
+3. On the mosque laptop, once:
+   `setx RUNPOD_API_KEY "<your RunPod key>"` — then close the terminal.
+
+### Then, every Friday
+
+**Double-click `START.bat`.** That is the whole procedure.
+
+It shows a window with six lines and ticks them off: it rents a GPU, waits for
+the machine, waits for the models to load, checks the connection, and then the
+subtitles appear. Expect **four to six minutes**, so start it before the
+congregation arrives — not as the imam stands up.
+
+There is nothing to type. No pod to create, no token to copy, no URL to paste.
+
+**When you close the subtitle window, the GPU is given back automatically** and
+the billing stops. You will see "GPU released" in the small black window.
+
+### If it doesn't work
+
+The window will say what went wrong and offer two buttons. Press
+**"Folytatás GPU nélkül / Continue without the GPU"** — the subtitles still
+work, using this laptop, exactly as they do offline. F1/F2 behave the same.
+
+Do not try to fix it in front of the congregation. Note what it said and look
+afterwards.
+
+### Making sure you are not paying for a GPU
+
+Three things stop the rented machine, so a forgotten one is not a disaster:
+
+1. Closing the subtitle window gives it back.
+2. The machine terminates **itself** a few hours after starting, even if this
+   laptop is switched off or loses power.
+3. The next `START.bat` cleans up anything left behind.
+
+If you want to stop it **right now** — the laptop crashed, or you closed the lid
+— double-click **`STOP.bat`**. It is safe to run at any time and tells you
+plainly whether anything was rented.
+
+And a fourth, which is the one that actually caps the money: the RunPod account
+holds **prepaid credit with auto-pay switched off**, so it can never be charged
+more than what is on it. If everything else somehow failed, you would lose the
+credit — not run up a bill.
+
+> `run.bat` still works and still reads `pod_url.txt`, for the case where you
+> have started a server by hand. `check_gpu.bat` checks such a server. Neither
+> is needed for the one-click procedure above.

@@ -18,6 +18,7 @@ the local model, and says so once on the console rather than failing silently.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import urllib.error
@@ -27,6 +28,7 @@ import numpy as np
 
 import config
 from subtitles.asr import is_hallucination, normalize
+from subtitles.http_client import KeepAliveClient
 
 
 class RemoteTranscriber:
@@ -44,6 +46,13 @@ class RemoteTranscriber:
     def __init__(self, local_fallback=None):
         self.url = config.REMOTE_ASR_URL.rstrip("/")
         self.timeout = config.REMOTE_ASR_TIMEOUT
+        # Snapshots of speech still in progress get a much tighter deadline:
+        # one that arrives later than the next refresh is worthless, and
+        # waiting for it stalls the single asr-mt thread. See config.py.
+        self.partial_timeout = getattr(
+            config, "REMOTE_ASR_PARTIAL_TIMEOUT", self.timeout
+        )
+        self._http = KeepAliveClient(self.url)
 
         # Token from the environment only — never committed to a project file.
         self.token = os.environ.get("WHISPER_SERVER_TOKEN", "").strip()
@@ -90,17 +99,23 @@ class RemoteTranscriber:
             "X-Mode": self.mode,
             "X-Task": self._task,
         }
+        # Tell the server which of these it is. Snapshots are overwritten a
+        # second later, so the server decodes them at a narrow beam and spends
+        # the GPU on the final, which is what stays on the projector. We have
+        # always known this here; we just never said it.
+        if is_partial:
+            headers["X-Partial"] = "1"
         # Vocabulary hint travels with the request so the wordlist lives in
         # config.py with the rest of the project rather than on the server.
         # base64 because HTTP headers cannot carry raw UTF-8 Arabic.
         if self._prompt_b64 and self.mode == "part1":
             headers["X-Prompt-B64"] = self._prompt_b64
 
-        req = urllib.request.Request(
-            f"{self.url}/transcribe", data=pcm, method="POST", headers=headers,
+        raw = self._http.post(
+            "/transcribe", pcm, headers,
+            self.partial_timeout if is_partial else self.timeout,
         )
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        payload = json.loads(raw.decode("utf-8"))
         self.last_language = payload.get("language") or "ar"
         return self._filter((payload.get("text") or "").strip(), is_partial)
 
@@ -178,13 +193,15 @@ class RemoteTranscriber:
                     self._consecutive_failures = 0
                     print("[remote ASR] server is back — using the GPU again.", flush=True)
                     return text
-                except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
+                except (urllib.error.URLError, http.client.HTTPException, OSError,
+                ValueError, json.JSONDecodeError):
                     pass
             return self._fallback.transcribe(audio) if self._fallback else ""
 
         try:
             text = self._post(audio, is_partial)
-        except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, http.client.HTTPException, OSError,
+                ValueError, json.JSONDecodeError) as exc:
             if is_partial:
                 return ""        # silently skip; the final will report trouble
             self._note_failure(exc)

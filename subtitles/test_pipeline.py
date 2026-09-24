@@ -6,8 +6,9 @@ uses — honouring config.ASR_LOCATION and config.TRANSLATION_PATH — and print
 the transcript and final Hungarian with per-stage timings. Use it to verify the
 model chain works before ever touching a mic.
 
-Because it follows config.py, remote ASR needs WHISPER_SERVER_TOKEN in the
-environment (and the SSH tunnel up) exactly as the live app does.
+Because it follows config.py, the remote paths need WHISPER_SERVER_TOKEN in the
+environment and the GPU server reachable, exactly as the live app does. Point it
+at a pod by setting WHISPER_SERVER_URL (run.bat does this from pod_url.txt).
 
 Usage:
     python -m subtitles.test_pipeline path/to/file.wav
@@ -102,10 +103,21 @@ def main():
         transcriber = RemoteTranscriber(local_fallback=transcriber)
         transcriber.mode = args.mode
 
+    # ...and the same for translation. This was missing: the harness honoured
+    # ASR_LOCATION but always translated locally, so with MT_LOCATION="remote"
+    # it measured the laptop's 600M while Friday ran the GPU's 1.3B. Same class
+    # of bug as the one described above, one stage further down the pipeline —
+    # a smoke test that quietly exercises a different chain than the live app
+    # is worse than no smoke test, because it is believed.
+    mt_where = getattr(config, "MT_LOCATION", "cpu").lower()
+    if direct and mt_where == "remote":
+        from subtitles.mt_remote import RemoteTranslator
+        translator = RemoteTranslator(local_fallback=translator)
+
     where = getattr(config, "ASR_LOCATION", "cpu")
     path = "direct AR->HU" if direct else "pivot AR->EN->HU"
     print(f"  models loaded in {time.time() - t:.1f}s "
-          f"(mode={args.mode}, asr={where}, path={path})")
+          f"(mode={args.mode}, asr={where}, mt={mt_where}, path={path})")
 
     t = time.time()
     source = transcriber.transcribe(audio)
@@ -127,8 +139,14 @@ def main():
     print(f"HU ({t_mt:.2f}s): {hungarian!r}")
 
     if getattr(transcriber, "_using_fallback", False):
-        print("\nNOTE: the remote server was unreachable — this ran on the LOCAL "
-              "model, so the quality above is not what the GPU path produces.")
+        print("\nNOTE: the remote server was unreachable for TRANSCRIPTION — this "
+              "ran on the LOCAL Whisper model, so the quality above is not what "
+              "the GPU path produces.")
+    if getattr(translator, "_using_fallback", False):
+        print("\nNOTE: the remote server was unreachable for TRANSLATION — the "
+              "Hungarian above came from this laptop's 600M model, not the GPU's "
+              "1.3B. These two fall back independently, so one can be degraded "
+              "while the other is fine.")
 
 
 if __name__ == "__main__":

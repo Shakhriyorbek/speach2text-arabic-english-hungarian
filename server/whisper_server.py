@@ -1,5 +1,5 @@
 """
-GPU transcription server — runs ON the Azure T4 VM, not on the mosque laptop.
+GPU transcription server — runs on the rented GPU, not on the mosque laptop.
 
 Why this exists: a weak laptop CPU caps Whisper at "small", which is not good
 enough for Arabic (measured: it dropped most of a real khutbah). The same audio
@@ -18,21 +18,45 @@ Protocol
 POST /transcribe
     Authorization: Bearer <token>     (must match WHISPER_SERVER_TOKEN)
     X-Mode: part1 | part2             (part1 forces Arabic, part2 auto-detects)
+    X-Task: transcribe | translate    (default translate, which returns ENGLISH;
+                                       the direct Arabic->Hungarian path needs
+                                       transcribe and breaks silently without it)
+    X-Partial: 1                      (optional; a snapshot of speech still in
+                                       progress — decoded at a narrower beam.
+                                       Absent means final.)
+    X-Prompt-B64: <base64 utf-8>      (optional vocabulary hint, Part 1 only;
+                                       base64 because HTTP headers are latin-1)
     body: raw little-endian int16 PCM, 16 kHz, mono
-    -> 200 {"text": "...", "ms": 123, "dropped": 0}
+    -> 200 {"text": "...", "ms": 123, "dropped": 0, "language": "ar"}
 
-GET /health
-    -> 200 {"ok": true, "model": "large-v3", "device": "cuda"}
+POST /translate
+    Authorization: Bearer <token>
+    X-Src-Lang: ar | en               (default ar)
+    body: UTF-8 text, at most 64 KiB
+    -> 200 {"text": "...", "ms": 123}
+    -> 501 when this server was started without NLLB_MODEL_DIR
+
+GET /health                           (UNAUTHENTICATED, on purpose: the laptop
+                                       must be able to ask before it has proved
+                                       anything, and it leaks nothing)
+    -> 200 {"ok": true, "model": ..., "device": ..., "compute_type": ...,
+            "beam": {...}, "translate": bool, "translate_model": ...,
+            "gpu": ..., "vram_gb": ..., "deadline": ...}
 
 Run it:
     export WHISPER_SERVER_TOKEN="<a long random string>"
     ~/wbench/bin/python whisper_server.py
+
+Normally nobody types that: START.bat on the laptop creates the pod with this
+as its start command and passes the token in through the environment.
 """
 
 import base64
 import json
 import os
+import subprocess
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -57,6 +81,18 @@ NLLB_MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", "").strip()
 NLLB_DEVICE = os.environ.get("NLLB_DEVICE", "cuda")
 NLLB_COMPUTE_TYPE = os.environ.get("NLLB_COMPUTE_TYPE", "float16")
 
+# Search width, split between the two kinds of request. Four out of every five
+# calls are snapshots of an utterance still being spoken, which get overwritten
+# a second later; only the fifth — the final — reaches the projector and stays
+# there. So spend the GPU on the one that is read.
+#
+# Beam 5 roughly doubles Whisper's decode time, which used to be unaffordable
+# because everything was decoded at beam 1. Paying it on 20% of requests is not.
+# On the laptop these stay at 1/2 via config.py; this is a GPU-only luxury.
+BEAM_FINAL = int(os.environ.get("WHISPER_BEAM_FINAL", "5"))
+BEAM_PARTIAL = int(os.environ.get("WHISPER_BEAM_PARTIAL", "1"))
+NLLB_BEAM_SIZE = int(os.environ.get("NLLB_BEAM_SIZE", "4"))
+
 # Vocabulary hint for Arabic (Part 1). Whisper mishears rare khutbah words the
 # same way every time — "المجوسي" became "المجلسي" three times in one live test,
 # which then translated as "the councillor" and "the table". Sent by the client
@@ -80,6 +116,50 @@ NO_SPEECH_MAX = 0.6
 
 _model = None
 _translator = None
+
+# faster_whisper's WhisperModel.transcribe is not thread-safe on a shared model,
+# and _do_translate sets tr.src_lang before calling tr.translate — two requests
+# interleaving there would translate Arabic as if it were English, which NLLB
+# renders as fluent, confident nonsense rather than an error.
+#
+# The subtitle client is single-threaded so this is normally unreachable. It
+# stops being unreachable the moment anyone runs check_gpu.bat, smoke_test.py or
+# compare_mt.py while a khutbah is live — which is exactly when nobody is
+# watching the console.
+_model_lock = threading.Lock()
+_translator_lock = threading.Lock()
+
+# Filled once at startup. /health is unauthenticated and the pre-flight polls
+# it, so it must never shell out to nvidia-smi per request.
+_gpu_info = {}
+
+
+def probe_gpu():
+    """Card name and VRAM, or {} when there is no usable GPU."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip().splitlines()[0]
+        name, mib = (p.strip() for p in out.split(","))
+        return {"gpu": name, "vram_gb": round(int(mib) / 1024, 1)}
+    except Exception:
+        return {}
+
+
+def read_deadline():
+    """When start_whisper.sh has arranged for this pod to terminate itself.
+
+    Reported so the operator learns about it during check_gpu.bat rather than
+    by the subtitles stopping. Read per request because the file is tiny and
+    the deadline can be cancelled while we run.
+    """
+    try:
+        with open(os.path.join(os.environ.get("WORKDIR", "/workspace"), "deadline")) as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
 
 
 def get_model():
@@ -110,36 +190,48 @@ def get_translator():
             model_dir=NLLB_MODEL_DIR,
             device=NLLB_DEVICE,
             compute_type=NLLB_COMPUTE_TYPE,
+            beam_size=NLLB_BEAM_SIZE,
         )
         print(f"translator ready in {time.time() - t0:.1f}s", flush=True)
     return _translator
 
 
-def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate", prompt: str = ""):
+def transcribe_pcm(pcm: bytes, mode: str, task: str = "translate", prompt: str = "",
+                   is_partial: bool = False):
     """int16 PCM -> (text, n_dropped_segments, detected_language).
 
     task="translate" gives ENGLISH (Whisper can emit no other target language).
     task="transcribe" gives the SPOKEN language — needed by the direct
     Arabic->Hungarian path, which must not be handed English by mistake.
+
+    is_partial marks a snapshot of an utterance still being spoken. It buys
+    speed at the cost of accuracy, which is the right way round: a snapshot is
+    replaced a second later, a final is what the congregation reads.
     """
     audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
 
     # Part 1 only: an Arabic prompt would skew Part 2's language auto-detect.
     hint = (prompt or DEFAULT_INITIAL_PROMPT_AR) if mode == "part1" else ""
 
-    segments, info = get_model().transcribe(
-        audio,
-        task=task,
-        language="ar" if mode == "part1" else None,
-        initial_prompt=hint or None,
-        beam_size=1,
-        temperature=0.0,
-        condition_on_previous_text=False,      # stops repetition loops
-        repetition_penalty=REPETITION_PENALTY,
-        no_repeat_ngram_size=NO_REPEAT_NGRAM,
-        without_timestamps=True,
-        vad_filter=False,                      # the laptop's VAD already ran
-    )
+    model = get_model()
+    with _model_lock:
+        segments, info = model.transcribe(
+            audio,
+            task=task,
+            language="ar" if mode == "part1" else None,
+            initial_prompt=hint or None,
+            beam_size=BEAM_PARTIAL if is_partial else BEAM_FINAL,
+            temperature=0.0,
+            condition_on_previous_text=False,  # stops repetition loops
+            repetition_penalty=REPETITION_PENALTY,
+            no_repeat_ngram_size=NO_REPEAT_NGRAM,
+            without_timestamps=True,
+            vad_filter=False,                  # the laptop's VAD already ran
+        )
+        # faster-whisper yields segments lazily, so the decode has NOT happened
+        # yet — draining the generator inside the lock is what actually makes
+        # this exclusive.
+        segments = list(segments)
 
     kept, dropped = [], 0
     for s in segments:
@@ -179,15 +271,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._json(200, {
+            # Everything here exists so that degradation is VISIBLE. The whole
+            # remote path is built to fall back quietly rather than fail, which
+            # is right on the day and means nothing announces itself — so the
+            # pre-flight has to be able to ask.
+            payload = {
                 "ok": True,
                 "model": MODEL_SIZE,
                 "device": DEVICE,
+                "compute_type": COMPUTE_TYPE,
+                "beam": {"final": BEAM_FINAL, "partial": BEAM_PARTIAL},
                 # The client uses this to decide whether it may send text here
                 # at all, rather than discovering it via a 404 mid-sermon.
                 "translate": bool(NLLB_MODEL_DIR),
                 "translate_model": os.path.basename(NLLB_MODEL_DIR) or None,
-            })
+                "translate_compute_type": NLLB_COMPUTE_TYPE if NLLB_MODEL_DIR else None,
+                "translate_beam": NLLB_BEAM_SIZE if NLLB_MODEL_DIR else None,
+            }
+            payload.update(_gpu_info)
+            deadline = read_deadline()
+            if deadline:
+                payload["deadline"] = deadline
+            self._json(200, payload)
         else:
             self._json(404, {"error": "not found"})
 
@@ -216,8 +321,13 @@ class Handler(BaseHTTPRequestHandler):
         src = self.headers.get("X-Src-Lang", "ar")
         t0 = time.time()
         try:
-            tr.src_lang = src
-            out = tr.translate(text)
+            # src_lang is instance state, so setting it and translating must be
+            # one operation. Interleaved, a request would be translated as the
+            # other one's language — which NLLB does not reject, it just
+            # produces confident nonsense.
+            with _translator_lock:
+                tr.src_lang = src
+                out = tr.translate(text)
         except Exception as exc:                    # never let one line kill it
             print(f"[translate error] {type(exc).__name__}: {exc}", flush=True)
             self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
@@ -257,6 +367,9 @@ class Handler(BaseHTTPRequestHandler):
         task = self.headers.get("X-Task", "translate")
         if task not in ("translate", "transcribe"):
             task = "translate"
+        # Absent means final. An old client that does not send this header gets
+        # the careful beam on everything — slower, never wrong.
+        is_partial = self.headers.get("X-Partial", "") == "1"
         # Header is base64 so the Arabic survives HTTP's latin-1 header encoding.
         prompt = ""
         raw = self.headers.get("X-Prompt-B64", "")
@@ -268,7 +381,7 @@ class Handler(BaseHTTPRequestHandler):
 
         t0 = time.time()
         try:
-            text, dropped, lang = transcribe_pcm(pcm, mode, task, prompt)
+            text, dropped, lang = transcribe_pcm(pcm, mode, task, prompt, is_partial)
         except Exception as exc:                    # never let one chunk kill it
             print(f"[error] {type(exc).__name__}: {exc}", flush=True)
             self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
@@ -276,8 +389,9 @@ class Handler(BaseHTTPRequestHandler):
 
         ms = int((time.time() - t0) * 1000)
         secs = len(pcm) / 2 / 16000
+        kind = "partial" if is_partial else "final"
         print(f"  {secs:.1f}s audio -> {ms}ms ({secs / (ms / 1000 or 1):.1f}x) "
-              f"[{mode}/{task}/{lang}] {text[:80]}", flush=True)
+              f"[{mode}/{task}/{lang}/{kind}] {text[:80]}", flush=True)
         self._json(200, {"text": text, "ms": ms, "dropped": dropped, "language": lang})
 
     def log_message(self, fmt, *args):
@@ -291,6 +405,11 @@ def main():
             "Refusing to start an unauthenticated transcription endpoint on a\n"
             "public IP. Generate one with:  openssl rand -hex 32"
         )
+    global _gpu_info
+    _gpu_info = probe_gpu()
+    if _gpu_info:
+        print(f"{_gpu_info['gpu']}, {_gpu_info['vram_gb']} GB", flush=True)
+
     get_model()      # load before accepting traffic, so the first khutbah
                      # utterance is not charged the model load time
     get_translator() # same for NLLB when this box also translates

@@ -10,3 +10,11 @@ venv/
 # generated, so ignore the lot and keep the .gitkeep that holds the directory.
 models/*
 !models/.gitkeep
+
+# The GPU pod's URL — machine-specific, and it changes every time a pod is
+# created. pod_url.txt.example is committed as the template.
+pod_url.txt
+
+# The rented pod we are currently paying for, so STOP.bat and the next
+# START.bat can find it. Machine-specific and short-lived.
+.pod_state.json

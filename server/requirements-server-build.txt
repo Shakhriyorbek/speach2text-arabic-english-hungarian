@@ -1,0 +1,7 @@
+# Setup-only tools, needed once to CONVERT a Hugging Face model to CTranslate2.
+# Never installed into the runtime venv: torch alone is bigger than everything
+# the server actually runs. bootstrap.sh installs these into the container's
+# system python instead, which is thrown away when the pod is terminated while
+# the converted model stays on the persistent volume.
+transformers
+ctranslate2>=4.0
