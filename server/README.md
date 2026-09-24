@@ -87,7 +87,7 @@ laptop's models mid-sentence.
 
 | | $/month | bills when |
 |---|---|---|
-| RTX 4090 Secure, ~12 h/month @ $0.69/h | 8.28 | only while a pod exists |
+| A 24 GB card on Secure, ~12 h/month @ $0.49-0.74/h | 6-9 | only while a pod exists |
 | 25 GB network volume @ $0.07/GB | 1.75 | **always, 24/7** |
 | One CPU pod to build the models | ~0.20 | once, ever |
 | **Total** | **~$10** | |

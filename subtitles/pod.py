@@ -561,6 +561,10 @@ def stock() -> int:
 
     print(f"GPU availability in {dc}, right now")
     print("=" * 64)
+    print("  (price is the LOWEST tier RunPod offers for that card; on SECURE")
+    print("   you will pay more — the launcher prints the real rate when it")
+    print("   rents. Measured: a card listed at $0.34 cost $0.72 on Secure.)")
+    print()
     ours, others = [], []
     for g in rows:
         lp = g.get("lowestPrice") or {}
@@ -571,7 +575,7 @@ def stock() -> int:
         (ours if g["id"] in want else others).append(row)
 
     for gid, vram, st, price in sorted(ours, key=lambda r: (r[3] or 99)):
-        print(f"  OK   {gid[:38]:38} {vram:>3}G  {st:<6} ${price}")
+        print(f"  OK   {gid[:38]:38} {vram:>3}G  {st:<6} from ${price}")
     if not ours:
         print("  none of the cards in RUNPOD_GPU_TYPES are free.")
     if others:
